@@ -1,0 +1,124 @@
+﻿@page "/products"
+@using Product_Manager.Data
+@using Product_Manager.Services
+@inject ProductCrawlerService CrawlerService
+@inject ILogger<Products> Logger
+@attribute [StreamRendering]
+@rendermode InteractiveServer
+
+<PageTitle>🛒 Products</PageTitle>
+
+<h1>🛒 Products</h1>
+
+<div style="margin-bottom: 20px;">
+    <FluentButton Appearance="Appearance.Accent" OnClick="StartCrawler" Disabled="@isRunning">
+        @(isRunning ? "🕷️ Crawling..." : "🚀 Start Crawler")
+    </FluentButton>
+    
+    <FluentButton Appearance="Appearance.Neutral" OnClick="LoadProducts" style="margin-left: 10px;" Disabled="@isRunning">
+        🔄 Refresh Products
+    </FluentButton>
+</div>
+
+@if (!string.IsNullOrEmpty(statusMessage))
+{
+    <FluentMessageBar Title="📊 Status" Intent="@messageIntent" style="margin-bottom: 20px;">
+        @statusMessage
+    </FluentMessageBar>
+}
+
+@if (products == null)
+{
+    <FluentProgressRing>⏳ Loading...</FluentProgressRing>
+}
+else if (!products.Any())
+{
+    <p>📦 No products found. Use the crawler to fetch product data.</p>
+}
+else
+{
+    <FluentDataGrid Id="productsgrid" Items="@products" GridTemplateColumns="1fr 1fr 1fr 2fr 100px" TGridItem="Product">
+        <PropertyColumn Title="Article Number" Property="@(p => p!.ArticleNumber)" Align="Align.Start"/>
+        <PropertyColumn Title="Color ID" Property="@(p => p!.ColorId)" Align="Align.Start"/>
+        <PropertyColumn Title="Description" Property="@(p => p!.Description)" Align="Align.Start"/>
+        <PropertyColumn Title="Created" Property="@(p => p!.CreatedAt)" Format="yyyy-MM-dd" Align="Align.Start"/>
+        <TemplateColumn Title="Image" Align="Align.Center">
+            @if (context.ImageData != null)
+            {
+                <img src="@($"data:image/jpeg;base64,{Convert.ToBase64String(context.ImageData)}")" 
+                     alt="Product" 
+                     style="max-width: 80px; max-height: 80px;" />
+            }
+            else if (!string.IsNullOrEmpty(context.ImageUrl))
+            {
+                <img src="@context.ImageUrl" 
+                     alt="Product" 
+                     style="max-width: 80px; max-height: 80px;" />
+            }
+            else
+            {
+                <span>🚫 No image</span>
+            }
+        </TemplateColumn>
+    </FluentDataGrid>
+    
+    <p style="margin-top: 10px;">📊 Total products: @products.Count()</p>
+}
+
+@code {
+    private IQueryable<Product>? products;
+    private bool isRunning = false;
+    private string? statusMessage;
+    private MessageIntent messageIntent = MessageIntent.Info;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadProducts();
+    }
+
+    private async Task LoadProducts()
+    {
+        try
+        {
+            var productList = await CrawlerService.GetAllProductsAsync();
+            products = productList.AsQueryable();
+            Logger.LogInformation("✅ Loaded {Count} products", productList.Count);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "❌ Error loading products");
+            statusMessage = $"❌ Error loading products: {ex.Message}";
+            messageIntent = MessageIntent.Error;
+        }
+    }
+
+    private async Task StartCrawler()
+    {
+        isRunning = true;
+        statusMessage = "🕷️ Starting crawler... This may take a few minutes. ⏳";
+        messageIntent = MessageIntent.Info;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Run(async () => await CrawlerService.StartCrawlingAsync());
+            
+            statusMessage = "✅ Crawling completed successfully! 🎉";
+            messageIntent = MessageIntent.Success;
+            
+            await LoadProducts();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "❌ Error during crawling");
+            statusMessage = $"❌ Error during crawling: {ex.Message}";
+            messageIntent = MessageIntent.Error;
+        }
+        finally
+        {
+            isRunning = false;
+            StateHasChanged();
+        }
+    }
+}
+

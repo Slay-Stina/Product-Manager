@@ -1,0 +1,129 @@
+﻿@page "/crawler-config"
+@using Product_Manager.Services
+@inject CrawlerSettings Settings
+@rendermode InteractiveServer
+
+<PageTitle>🕷️ Crawler Configuration</PageTitle>
+
+<h1>🕷️ Crawler Configuration</h1>
+
+<p>Configure the web crawler settings to connect to your image bank. 🎨📦</p>
+
+<div style="max-width: 600px;">
+    <FluentStack Orientation="Orientation.Vertical" Style="gap: 20px;">
+        
+        <FluentTextField @bind-Value="Settings.TargetUrl" Label="Target URL" Style="width: 100%;" Placeholder="https://example.com/products">
+            <FluentIcon Value="@(new Icons.Regular.Size20.Globe())" Slot="start" />
+        </FluentTextField>
+        
+        <FluentTextField @bind-Value="Settings.LoginUrl" Label="Login URL" Style="width: 100%;" Placeholder="https://example.com/login">
+            <FluentIcon Value="@(new Icons.Regular.Size20.LockClosed())" Slot="start" />
+        </FluentTextField>
+        
+        <FluentTextField @bind-Value="Settings.Username" Label="Username" Style="width: 100%;">
+            <FluentIcon Value="@(new Icons.Regular.Size20.Person())" Slot="start" />
+        </FluentTextField>
+        
+        <FluentTextField @bind-Value="Settings.Password" Label="Password" TextFieldType="TextFieldType.Password" Style="width: 100%;">
+            <FluentIcon Value="@(new Icons.Regular.Size20.Key())" Slot="start" />
+        </FluentTextField>
+        
+        <FluentNumberField @bind-Value="Settings.MaxPagesToCrawl" Label="Max Pages to Crawl" Style="width: 100%;" />
+        
+        <FluentNumberField @bind-Value="Settings.CrawlDelayMilliseconds" Label="Crawl Delay (milliseconds)" Style="width: 100%;" />
+        
+        <FluentTextField @bind-Value="Settings.UsernameFieldName" Label="Username Field Name" Style="width: 100%;" Placeholder="username" />
+        
+        <FluentTextField @bind-Value="Settings.PasswordFieldName" Label="Password Field Name" Style="width: 100%;" Placeholder="password" />
+        
+        <FluentDivider />
+        
+        <FluentStack Orientation="Orientation.Horizontal">
+            <FluentButton Appearance="Appearance.Accent" OnClick="SaveSettings">
+                💾 Save Configuration
+            </FluentButton>
+            <FluentButton Appearance="Appearance.Neutral" href="/products">
+                🛒 Go to Products
+            </FluentButton>
+        </FluentStack>
+        
+        @if (!string.IsNullOrEmpty(message))
+        {
+            <FluentMessageBar Title="@messageTitle" Intent="@intent">
+                @message
+            </FluentMessageBar>
+        }
+        
+    </FluentStack>
+</div>
+
+<div style="margin-top: 40px; padding: 20px; background: var(--neutral-layer-2); border-radius: 8px; max-width: 600px;">
+    <h3>📖 Quick Setup Guide</h3>
+    <ol>
+        <li>🌐 Enter the URL of the product page you want to crawl</li>
+        <li>🔐 Enter the login page URL (if authentication is required)</li>
+        <li>👤 Provide your credentials</li>
+        <li>⚙️ Adjust the field names if the login form uses different names</li>
+        <li>⏱️ Set crawl delay to avoid overwhelming the server (recommended: 1000ms minimum)</li>
+        <li>💾 Click "Save Configuration" and then go to Products to start crawling</li>
+    </ol>
+    
+    <h4>⚠️ Important Notes:</h4>
+    <ul>
+        <li>⚠️ Configuration is stored in memory and will reset when the app restarts</li>
+        <li>🔒 For production, use User Secrets or environment variables</li>
+        <li>📝 You'll need to customize the HTML selectors in the code for your specific website</li>
+        <li>⚖️ Ensure you have permission to scrape the target website</li>
+        <li>🌍 Full Unicode/UTF-8 support for international characters (中文, 日本語, العربية, etc.)</li>
+    </ul>
+    
+    <h4>✨ Unicode Support Features:</h4>
+    <ul>
+        <li>✅ Handles product names with special characters: ñ, ü, é, ø, etc.</li>
+        <li>✅ Supports emoji in descriptions: 🎨 🌟 ⭐ 💎 🔥</li>
+        <li>✅ International text: 中文产品, 日本製品, المنتجات العربية</li>
+        <li>✅ Proper encoding for images with Unicode filenames</li>
+    </ul>
+</div>
+
+@code {
+    private string? message;
+    private string? messageTitle;
+    private MessageIntent intent = MessageIntent.Info;
+
+    private void SaveSettings()
+    {
+        try
+        {
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(Settings.TargetUrl))
+            {
+                message = "❌ Target URL is required";
+                messageTitle = "Validation Error";
+                intent = MessageIntent.Error;
+                return;
+            }
+
+            if (Settings.MaxPagesToCrawl <= 0)
+            {
+                Settings.MaxPagesToCrawl = 100;
+            }
+
+            if (Settings.CrawlDelayMilliseconds < 0)
+            {
+                Settings.CrawlDelayMilliseconds = 1000;
+            }
+
+            message = "✅ Configuration saved successfully! You can now go to the Products page to start crawling. 🚀";
+            messageTitle = "Success";
+            intent = MessageIntent.Success;
+        }
+        catch (Exception ex)
+        {
+            message = $"❌ Error saving configuration: {ex.Message}";
+            messageTitle = "Error";
+            intent = MessageIntent.Error;
+        }
+    }
+}
+
