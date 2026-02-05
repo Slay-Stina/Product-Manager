@@ -47,9 +47,13 @@ This application includes:
 2. **HSTS** - HTTP Strict Transport Security enabled
 3. **Antiforgery Protection** - CSRF tokens on all forms
 4. **Security Headers** - Content Security Policy, X-Frame-Options, etc.
-5. **Rate Limiting** - Protection against DoS attacks
+5. **Rate Limiting** - Protection against DoS attacks (100 requests/min per IP)
 6. **ASP.NET Core Identity** - Secure authentication and authorization
-7. **Request Size Limits** - Protection against large payload attacks
+7. **Request Size Limits** - Protection against large payload attacks (10MB max)
+
+### Known Dependencies
+
+The Abot web crawler library (v2.0.70) has transitive dependencies on old System.Net.Http and System.Security.Cryptography packages that show vulnerability warnings. These warnings can be safely ignored in .NET 9.0, as the framework uses its own built-in implementations of these types instead of the old package versions.
 
 ## Reporting Security Issues
 
@@ -57,10 +61,14 @@ If you discover a security vulnerability, please email security@example.com inst
 
 ## Password Policy
 
-- Minimum 6 characters (configurable)
-- Requires email confirmation
+- Minimum 8 characters (configurable)
+- Requires uppercase and lowercase letters
+- Requires at least one digit
+- Requires at least one non-alphanumeric character
+- Email confirmation required
 - Supports two-factor authentication
 - Password reset via email
+- Account lockout after 5 failed attempts (5 minute lockout)
 
 ## Best Practices
 

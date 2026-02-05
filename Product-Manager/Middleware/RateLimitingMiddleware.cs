@@ -7,7 +7,10 @@ public class RateLimitingMiddleware
     private readonly RequestDelegate _next;
     private readonly ILogger<RateLimitingMiddleware> _logger;
     private static readonly ConcurrentDictionary<string, RequestCounter> _requestCounts = new();
+    private static readonly SemaphoreSlim _cleanupSemaphore = new(1, 1);
+    private static DateTime _lastCleanup = DateTime.UtcNow;
     private readonly int _maxRequestsPerMinute = 100;
+    private readonly int _cleanupIntervalMinutes = 5;
 
     public RateLimitingMiddleware(RequestDelegate next, ILogger<RateLimitingMiddleware> logger)
     {
@@ -23,9 +26,9 @@ public class RateLimitingMiddleware
         var counter = _requestCounts.GetOrAdd(clientIp, _ => new RequestCounter());
 
         bool isRateLimited;
-        lock (counter)
+        lock (counter.Lock)
         {
-            // Clean up old entries
+            // Clean up old entries within this counter
             counter.Timestamps.RemoveAll(t => (now - t).TotalMinutes > 1);
 
             isRateLimited = counter.Timestamps.Count >= _maxRequestsPerMinute;
@@ -40,34 +43,66 @@ public class RateLimitingMiddleware
         {
             _logger.LogWarning("Rate limit exceeded for IP: {ClientIp}", clientIp);
             context.Response.StatusCode = 429; // Too Many Requests
+            context.Response.Headers.Append("Retry-After", "60");
             await context.Response.WriteAsync("Rate limit exceeded. Please try again later.");
             return;
         }
 
-        // Clean up old IPs periodically
-        if (now.Second == 0)
+        // Periodic cleanup of old IPs (every 5 minutes)
+        if ((now - _lastCleanup).TotalMinutes >= _cleanupIntervalMinutes && _cleanupSemaphore.CurrentCount > 0)
         {
-            CleanupOldEntries(now);
+            _ = Task.Run(async () => await CleanupOldEntriesAsync(now));
         }
 
         await _next(context);
     }
 
-    private void CleanupOldEntries(DateTime now)
+    private async Task CleanupOldEntriesAsync(DateTime now)
     {
-        var keysToRemove = _requestCounts
-            .Where(kvp => kvp.Value.Timestamps.All(t => (now - t).TotalMinutes > 5))
-            .Select(kvp => kvp.Key)
-            .ToList();
-
-        foreach (var key in keysToRemove)
+        // Use semaphore to ensure only one cleanup runs at a time
+        if (!await _cleanupSemaphore.WaitAsync(0))
         {
-            _requestCounts.TryRemove(key, out _);
+            return; // Another cleanup is already running
+        }
+
+        try
+        {
+            _lastCleanup = now;
+            var keysToRemove = new List<string>();
+
+            foreach (var kvp in _requestCounts)
+            {
+                bool shouldRemove;
+                lock (kvp.Value.Lock)
+                {
+                    shouldRemove = kvp.Value.Timestamps.All(t => (now - t).TotalMinutes > 5);
+                }
+                
+                if (shouldRemove)
+                {
+                    keysToRemove.Add(kvp.Key);
+                }
+            }
+
+            foreach (var key in keysToRemove)
+            {
+                _requestCounts.TryRemove(key, out _);
+            }
+
+            if (keysToRemove.Count > 0)
+            {
+                _logger.LogInformation("Cleaned up {Count} inactive IP addresses from rate limiter", keysToRemove.Count);
+            }
+        }
+        finally
+        {
+            _cleanupSemaphore.Release();
         }
     }
 
     private class RequestCounter
     {
+        public object Lock { get; } = new object();
         public List<DateTime> Timestamps { get; } = new();
     }
 }

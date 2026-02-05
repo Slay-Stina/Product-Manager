@@ -24,6 +24,8 @@ public class SecurityHeadersMiddleware
         context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
 
         // Content-Security-Policy: Restrict resource loading
+        // Note: Blazor Server requires 'unsafe-inline' and 'unsafe-eval' for SignalR and dynamic component loading
+        // For production, consider implementing nonce-based CSP if your application supports it
         var csp = "default-src 'self'; " +
                   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; " +
                   "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; " +
