@@ -57,7 +57,7 @@ The Abot web crawler library (v2.0.70) has transitive dependencies on old System
 
 ## Reporting Security Issues
 
-If you discover a security vulnerability, please email security@example.com instead of using the issue tracker.
+If you discover a security vulnerability, please report it privately via GitHub's security advisory feature or contact the repository maintainers directly rather than using the public issue tracker.
 
 ## Password Policy
 

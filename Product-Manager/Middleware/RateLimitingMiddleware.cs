@@ -20,7 +20,16 @@ public class RateLimitingMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var remoteIp = context.Connection.RemoteIpAddress;
+        if (remoteIp is null)
+        {
+            _logger.LogWarning("Received request without valid RemoteIpAddress, blocking request");
+            context.Response.StatusCode = 400; // Bad Request
+            await context.Response.WriteAsync("Client IP address is required.");
+            return;
+        }
+
+        var clientIp = remoteIp.ToString();
         var now = DateTime.UtcNow;
 
         var counter = _requestCounts.GetOrAdd(clientIp, _ => new RequestCounter());
@@ -49,7 +58,8 @@ public class RateLimitingMiddleware
         }
 
         // Periodic cleanup of old IPs (every 5 minutes)
-        if ((now - _lastCleanup).TotalMinutes >= _cleanupIntervalMinutes && _cleanupSemaphore.CurrentCount > 0)
+        var timeSinceLastCleanup = now - _lastCleanup;
+        if (timeSinceLastCleanup.TotalMinutes >= _cleanupIntervalMinutes && _cleanupSemaphore.CurrentCount > 0)
         {
             _ = Task.Run(async () => await CleanupOldEntriesAsync(now));
         }
@@ -67,7 +77,16 @@ public class RateLimitingMiddleware
 
         try
         {
+            // Atomically update the last cleanup time
+            var previousCleanup = _lastCleanup;
             _lastCleanup = now;
+            
+            // If another thread already updated it to a more recent time, skip this cleanup
+            if (previousCleanup > now.AddMinutes(-_cleanupIntervalMinutes))
+            {
+                return;
+            }
+            
             var keysToRemove = new List<string>();
 
             foreach (var kvp in _requestCounts)

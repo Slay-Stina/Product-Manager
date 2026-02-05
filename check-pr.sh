@@ -48,14 +48,10 @@ fi
 echo ""
 
 echo "✨ Step 4: Checking code formatting..."
-if command -v dotnet-format &> /dev/null || dotnet tool list -g | grep -q dotnet-format; then
-    if dotnet format Product-Manager/Product-Manager.csproj --verify-no-changes 2>&1; then
-        echo -e "${GREEN}✅ Code formatting is correct${NC}"
-    else
-        echo -e "${YELLOW}⚠️  Code formatting issues detected. Run 'dotnet format' to fix${NC}"
-    fi
+if dotnet format Product-Manager/Product-Manager.csproj --verify-no-changes 2>&1; then
+    echo -e "${GREEN}✅ Code formatting is correct${NC}"
 else
-    echo -e "${YELLOW}⚠️  dotnet-format not installed. Run: dotnet tool install -g dotnet-format${NC}"
+    echo -e "${YELLOW}⚠️  Code formatting issues detected. Run 'dotnet format' to fix${NC}"
 fi
 echo ""
 

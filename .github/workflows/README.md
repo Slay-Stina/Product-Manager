@@ -36,7 +36,8 @@ This workflow runs automatically on every pull request and push to main/master b
 All pull requests must pass the following checks before merging:
 
 - ✅ **Build succeeds** - Code compiles without errors
-- ✅ **No critical vulnerabilities** - CodeQL security scan passes
+- ✅ **No critical vulnerabilities** - Dependency scan passes
+- ✅ **CodeQL security scan passes** - No security issues detected
 - ⚠️ **Code formatting** - Warning only, but should follow .NET conventions
 
 ## Running Checks Locally

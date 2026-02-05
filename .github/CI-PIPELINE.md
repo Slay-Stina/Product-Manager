@@ -60,15 +60,15 @@ flowchart TD
 - **Actions**:
   - Restore NuGet packages
   - Build in Release configuration
-  - Check for vulnerable dependencies
+  - Check for vulnerable dependencies (blocks on vulnerabilities)
 - **Failure Impact**: Blocks PR merge
 
 ### 2. Code Quality ⚠️ (Warning)
 - **Purpose**: Ensure code follows formatting standards
 - **Duration**: ~20-40 seconds  
 - **Actions**:
-  - Install dotnet-format tool
-  - Verify code formatting
+  - Check code formatting with built-in `dotnet format`
+  - Verify consistent code style
 - **Failure Impact**: Warning only, does not block merge
 
 ### 3. Security Scan ✅ (Required)

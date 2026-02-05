@@ -32,7 +32,7 @@ jobs:
       - name: Check for vulnerabilities
         run: >
           dotnet list Product-Manager/Product-Manager.csproj package
-          --vulnerable --include-transitive || true
+          --vulnerable --include-transitive
 
   code-quality:
     name: Code Quality Checks
@@ -47,9 +47,6 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
-      - name: Install dotnet-format
-        run: dotnet tool install -g dotnet-format || true
-
       - name: Check code formatting
         run: >
           dotnet format Product-Manager/Product-Manager.csproj
@@ -60,6 +57,9 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
 
     steps:
       - name: Checkout code
