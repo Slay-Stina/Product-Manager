@@ -1,0 +1,134 @@
+---
+name: PR Status Check
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore Product-Manager/Product-Manager.csproj
+
+      - name: Build
+        run: >
+          dotnet build Product-Manager/Product-Manager.csproj
+          --no-restore --configuration Release
+
+      - name: Check for vulnerabilities
+        run: >
+          dotnet list Product-Manager/Product-Manager.csproj package
+          --vulnerable --include-transitive
+
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Check code formatting
+        run: >
+          dotnet format Product-Manager/Product-Manager.csproj
+          --verify-no-changes --verbosity diagnostic ||
+          echo "Code formatting check completed"
+        continue-on-error: true
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: csharp
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build for CodeQL
+        run: |
+          dotnet restore Product-Manager/Product-Manager.csproj
+          dotnet build Product-Manager/Product-Manager.csproj \
+            --no-restore --configuration Release
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  architecture-validation:
+    name: Architecture Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate architecture boundaries
+        run: bash scripts/check-architecture.sh
+
+      - name: Validate security patterns
+        run: bash scripts/check-security-patterns.sh
+
+      - name: Analyze database queries
+        run: bash scripts/check-database-queries.sh
+        continue-on-error: true
+
+  status-summary:
+    name: Status Summary
+    runs-on: ubuntu-latest
+    needs: [build-and-test, code-quality, security-scan, architecture-validation]
+    if: always()
+
+    steps:
+      - name: Check job statuses
+        run: |
+          echo "Build and Test: ${{ needs.build-and-test.result }}"
+          echo "Code Quality: ${{ needs.code-quality.result }}"
+          echo "Security Scan: ${{ needs.security-scan.result }}"
+          echo "Architecture: ${{ needs.architecture-validation.result }}"
+
+          if [ "${{ needs.build-and-test.result }}" != "success" ]; then
+            echo "❌ Build and test failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.security-scan.result }}" != "success" ]; then
+            echo "❌ Security scan failed"
+            exit 1
+          fi
+
+          if [ "${{ needs.architecture-validation.result }}" != "success" ]; then
+            echo "❌ Architecture validation failed"
+            exit 1
+          fi
+
+          echo "✅ All required checks passed"

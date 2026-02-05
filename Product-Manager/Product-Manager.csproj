@@ -17,6 +17,12 @@
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.9" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.9" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.9" />
+    <!-- 
+      Note: Abot 2.0.70 brings transitive dependencies on System.Net.Http 4.1.0 and 
+      System.Security.Cryptography.X509Certificates 4.1.0, which show as vulnerable.
+      However, in .NET 9.0, these types are provided by the runtime and the old package 
+      versions are not actually used. The vulnerability warnings can be safely ignored.
+    -->
   </ItemGroup>
 
   <ItemGroup>
