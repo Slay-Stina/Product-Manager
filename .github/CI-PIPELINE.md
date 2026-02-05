@@ -8,6 +8,7 @@ flowchart TD
     Parallel --> Build[Build & Test<br/>✅ Required]
     Parallel --> Quality[Code Quality<br/>⚠️ Warning]
     Parallel --> Security[Security Scan<br/>✅ Required]
+    Parallel --> Arch[Architecture<br/>✅ Required]
     
     Build --> B1[1. Checkout Code]
     B1 --> B2[2. Setup .NET 9.0]
@@ -26,9 +27,15 @@ flowchart TD
     S3 --> S4[4. Build for Analysis]
     S4 --> S5[5. CodeQL Analyze]
     
+    Arch --> A1[1. Checkout Code]
+    A1 --> A2[2. Check Boundaries]
+    A2 --> A3[3. Check Security]
+    A3 --> A4[4. Check DB Queries]
+    
     B5 --> Summary
     Q4 --> Summary
     S5 --> Summary
+    A4 --> Summary
     
     Summary[Status Summary<br/>Aggregate Results]
     
@@ -38,6 +45,7 @@ flowchart TD
     
     style Build fill:#90EE90
     style Security fill:#90EE90
+    style Arch fill:#90EE90
     style Quality fill:#FFE4B5
     style Pass fill:#90EE90
     style Fail fill:#FFB6C1
@@ -72,7 +80,16 @@ flowchart TD
   - Analyze for vulnerabilities
 - **Failure Impact**: Blocks PR merge
 
-### 4. Status Summary
+### 4. Architecture Validation ✅ (Required)
+- **Purpose**: Enforce architectural constraints and patterns
+- **Duration**: ~10-20 seconds
+- **Actions**:
+  - Check architecture boundaries (layer dependencies)
+  - Validate security patterns (credentials, middleware order)
+  - Analyze database query patterns (performance)
+- **Failure Impact**: Blocks PR merge on critical violations
+
+### 5. Status Summary
 - **Purpose**: Aggregate results and provide final verdict
 - **Duration**: ~5-10 seconds
 - **Actions**:
@@ -85,7 +102,13 @@ flowchart TD
 Run checks before pushing:
 
 ```bash
+# Run all pre-commit checks
 ./check-pr.sh
+
+# Run architecture validation only
+bash scripts/check-architecture.sh
+bash scripts/check-security-patterns.sh
+bash scripts/check-database-queries.sh
 ```
 
 This runs the same validations locally, helping catch issues early.
