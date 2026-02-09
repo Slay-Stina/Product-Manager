@@ -42,7 +42,23 @@ public class ProductCrawlerService
     {
         try
         {
-            _logger.LogInformation("Attempting to authenticate at {LoginUrl}", _settings.LoginUrl);
+            _logger.LogInformation("?? Attempting to authenticate at {LoginUrl}", _settings.LoginUrl);
+            
+            // Check if authentication is needed
+            if (string.IsNullOrWhiteSpace(_settings.LoginUrl) || 
+                _settings.LoginUrl.Contains("example.com"))
+            {
+                _logger.LogWarning("?? Login URL is not configured or uses example.com. Skipping authentication.");
+                _logger.LogInformation("?? If the site doesn't require login, this is OK. Otherwise, update CrawlerSettings in appsettings.json");
+                return true; // Allow crawling without authentication for public sites
+            }
+
+            if (string.IsNullOrWhiteSpace(_settings.Username) || string.IsNullOrWhiteSpace(_settings.Password))
+            {
+                _logger.LogWarning("?? Username or password is empty. Skipping authentication.");
+                _logger.LogInformation("?? If the site doesn't require login, this is OK. Otherwise, configure credentials.");
+                return true; // Allow crawling without authentication
+            }
 
             var loginData = new FormUrlEncodedContent(new[]
             {
@@ -62,28 +78,38 @@ public class ProductCrawlerService
 
             if (response.IsSuccessStatusCode)
             {
-                _logger.LogInformation("Authentication successful");
+                _logger.LogInformation("? Authentication successful");
                 return true;
             }
 
-            _logger.LogWarning("Authentication failed with status code: {StatusCode}", response.StatusCode);
+            _logger.LogWarning("? Authentication failed with status code: {StatusCode}", response.StatusCode);
+            var responseBody = await response.Content.ReadAsStringAsync();
+            _logger.LogDebug("Response body: {ResponseBody}", responseBody.Length > 500 ? responseBody.Substring(0, 500) : responseBody);
             return false;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during authentication");
+            _logger.LogError(ex, "? Error during authentication");
             return false;
         }
     }
 
     public async Task StartCrawlingAsync()
     {
-        _logger.LogInformation("Starting crawler for {TargetUrl}", _settings.TargetUrl);
+        _logger.LogInformation("?? Starting crawler for {TargetUrl}", _settings.TargetUrl);
+        
+        // Check if URL is configured
+        if (string.IsNullOrWhiteSpace(_settings.TargetUrl) || _settings.TargetUrl.Contains("example.com"))
+        {
+            _logger.LogError("? Target URL is not configured or uses example.com. Please update CrawlerSettings in appsettings.json");
+            _logger.LogError("?? Set 'CrawlerSettings:TargetUrl' to your actual website URL");
+            return;
+        }
 
         // Authenticate first
         if (!await AuthenticateAsync())
         {
-            _logger.LogError("Failed to authenticate. Aborting crawl.");
+            _logger.LogError("? Failed to authenticate. Aborting crawl.");
             return;
         }
 
@@ -112,10 +138,18 @@ public class ProductCrawlerService
 
         if (crawlResult.ErrorOccurred)
         {
-            _logger.LogError("Crawl error: {ErrorMessage}", crawlResult.ErrorException?.Message);
+            _logger.LogError("? Crawl error: {ErrorMessage}", crawlResult.ErrorException?.Message);
+            if (crawlResult.ErrorException != null)
+            {
+                _logger.LogError("Stack trace: {StackTrace}", crawlResult.ErrorException.StackTrace);
+            }
+        }
+        else
+        {
+            _logger.LogInformation("? Crawl completed successfully!");
         }
 
-        _logger.LogInformation("Crawl completed. Crawled {PageCount} pages", crawlResult.CrawlContext.CrawledCount);
+        _logger.LogInformation("?? Crawled {PageCount} pages", crawlResult.CrawlContext.CrawledCount);
     }
 
     private void ProcessPage(object? sender, PageCrawlCompletedArgs e)
@@ -162,8 +196,33 @@ public class ProductCrawlerService
             if (productElements.Length == 0)
             {
                 // Log the page structure to help with debugging
-                _logger.LogWarning("No products found. Page title: '{Title}'. Try updating the CSS selector.", document.Title);
-                _logger.LogDebug("Page body classes: {Classes}", document.Body?.ClassName);
+                _logger.LogWarning("?? No products found with current selectors on page: {Url}", pageUrl);
+                _logger.LogInformation("?? Page title: '{Title}'", document.Title);
+                _logger.LogInformation("?? Page body classes: {Classes}", document.Body?.ClassName ?? "(none)");
+                
+                // Log a sample of the page HTML to help identify the correct selectors
+                var bodyHtml = document.Body?.InnerHtml;
+                if (!string.IsNullOrEmpty(bodyHtml))
+                {
+                    var sample = bodyHtml.Length > 1000 ? bodyHtml.Substring(0, 1000) : bodyHtml;
+                    _logger.LogDebug("?? Page HTML sample (first 1000 chars):\n{HtmlSample}", sample);
+                }
+                
+                // Try to find any common product-related elements
+                var allDivs = document.QuerySelectorAll("div[class*='product'], div[id*='product'], article, .item, [data-product-id]");
+                _logger.LogInformation("?? Found {Count} elements with potential product-related attributes", allDivs.Length);
+                
+                if (allDivs.Length > 0)
+                {
+                    _logger.LogInformation("?? Consider using one of these selectors:");
+                    foreach (var div in allDivs.Take(5))
+                    {
+                        var className = div.ClassName;
+                        var id = div.Id;
+                        _logger.LogInformation("  - Element: {TagName}, Class: '{ClassName}', ID: '{Id}'", 
+                            div.TagName, className ?? "(none)", id ?? "(none)");
+                    }
+                }
             }
 
             foreach (var productElement in productElements)

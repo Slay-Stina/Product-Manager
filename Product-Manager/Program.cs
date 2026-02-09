@@ -76,6 +76,9 @@ builder.Services.AddSingleton(crawlerSettings);
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ProductCrawlerService>();
 
+// Register brand configuration service
+builder.Services.AddSingleton<BrandConfigService>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.

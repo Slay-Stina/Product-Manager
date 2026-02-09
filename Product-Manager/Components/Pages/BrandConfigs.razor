@@ -1,0 +1,356 @@
+@page "/brand-configs"
+@using Product_Manager.Models
+@using Product_Manager.Services
+@inject BrandConfigService BrandConfigService
+@inject CrawlerSettings CrawlerSettings
+@inject NavigationManager NavigationManager
+@rendermode InteractiveServer
+
+<PageTitle>??? Brand Configurations</PageTitle>
+
+<h1>??? Brand Crawler Configurations</h1>
+
+<p>Manage configurations for different brands and image banks. Each brand can have its own settings and selectors.</p>
+
+<FluentStack Orientation="Orientation.Vertical" Style="gap: 30px; max-width: 1200px;">
+    
+    @* Current Configurations List *@
+    <FluentCard>
+        <h2>?? Saved Configurations</h2>
+        
+        @if (configs.Any())
+        {
+            <FluentDataGrid Items="@configs.AsQueryable()" Style="width: 100%;">
+                <PropertyColumn Property="@(c => c.BrandName)" Title="Brand Name" Sortable="true" />
+                <PropertyColumn Property="@(c => c.TargetUrl)" Title="Target URL" />
+                <PropertyColumn Property="@(c => c.LastUsed)" Title="Last Used" Format="yyyy-MM-dd HH:mm" Sortable="true" />
+                <TemplateColumn Title="Actions">
+                    <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
+                        <FluentButton Appearance="Appearance.Accent" OnClick="@(() => LoadConfig(context))">
+                            ? Load
+                        </FluentButton>
+                        <FluentButton Appearance="Appearance.Neutral" OnClick="@(() => EditConfig(context))">
+                            ?? Edit
+                        </FluentButton>
+                        <FluentButton Appearance="Appearance.Neutral" OnClick="@(() => DeleteConfig(context.BrandName))">
+                            ??? Delete
+                        </FluentButton>
+                    </FluentStack>
+                </TemplateColumn>
+            </FluentDataGrid>
+        }
+        else
+        {
+            <p style="padding: 20px; text-align: center; color: var(--neutral-foreground-hint);">
+                ?? No saved configurations yet. Create one below!
+            </p>
+        }
+    </FluentCard>
+
+    @* Configuration Form *@
+    <FluentCard>
+        <h2>@(editingConfig != null ? "?? Edit Configuration" : "? New Configuration")</h2>
+        
+        <FluentStack Orientation="Orientation.Vertical" Style="gap: 15px;">
+            
+            <FluentTextField @bind-Value="currentConfig.BrandName" 
+                           Label="Brand Name *" 
+                           Style="width: 100%;" 
+                           Placeholder="e.g., GANT, H&M, Zara">
+                <FluentIcon Value="@(new Icons.Regular.Size20.Building())" Slot="start" />
+            </FluentTextField>
+            
+            <FluentDivider Role="DividerRole.Presentation" />
+            
+            <h3>?? URL Settings</h3>
+            
+            <FluentTextField @bind-Value="currentConfig.TargetUrl" 
+                           Label="Target URL *" 
+                           Style="width: 100%;" 
+                           Placeholder="https://www.gant.se/products">
+                <FluentIcon Value="@(new Icons.Regular.Size20.Globe())" Slot="start" />
+            </FluentTextField>
+            
+            <FluentTextField @bind-Value="currentConfig.LoginUrl" 
+                           Label="Login URL (optional)" 
+                           Style="width: 100%;" 
+                           Placeholder="https://example.com/login">
+                <FluentIcon Value="@(new Icons.Regular.Size20.LockClosed())" Slot="start" />
+            </FluentTextField>
+            
+            <FluentDivider Role="DividerRole.Presentation" />
+            
+            <h3>?? Authentication (Optional)</h3>
+            
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; width: 100%;">
+                <FluentTextField @bind-Value="currentConfig.Username" 
+                               Label="Username" 
+                               Style="flex: 1;">
+                    <FluentIcon Value="@(new Icons.Regular.Size20.Person())" Slot="start" />
+                </FluentTextField>
+                
+                <FluentTextField @bind-Value="currentConfig.Password" 
+                               Label="Password" 
+                               TextFieldType="TextFieldType.Password" 
+                               Style="flex: 1;">
+                    <FluentIcon Value="@(new Icons.Regular.Size20.Key())" Slot="start" />
+                </FluentTextField>
+            </FluentStack>
+            
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; width: 100%;">
+                <FluentTextField @bind-Value="currentConfig.UsernameFieldName" 
+                               Label="Username Field Name" 
+                               Style="flex: 1;" 
+                               Placeholder="username" />
+                
+                <FluentTextField @bind-Value="currentConfig.PasswordFieldName" 
+                               Label="Password Field Name" 
+                               Style="flex: 1;" 
+                               Placeholder="password" />
+            </FluentStack>
+            
+            <FluentDivider Role="DividerRole.Presentation" />
+            
+            <h3>?? HTML Selectors</h3>
+            <p style="color: var(--neutral-foreground-hint); font-size: 0.875rem;">
+                CSS selectors to extract product data from the HTML. Use browser DevTools to inspect the page.
+            </p>
+            
+            <FluentTextField @bind-Value="currentConfig.ProductNameSelector" 
+                           Label="Product Name Selector" 
+                           Style="width: 100%;" 
+                           Placeholder="h1.product-name, #product-title" />
+            
+            <FluentTextField @bind-Value="currentConfig.ProductPriceSelector" 
+                           Label="Price Selector" 
+                           Style="width: 100%;" 
+                           Placeholder=".price-sales, .product-price" />
+            
+            <FluentTextField @bind-Value="currentConfig.ProductImageSelector" 
+                           Label="Image Selector" 
+                           Style="width: 100%;" 
+                           Placeholder=".product-image img, .gallery-image" />
+            
+            <FluentTextField @bind-Value="currentConfig.ProductDescriptionSelector" 
+                           Label="Description Selector" 
+                           Style="width: 100%;" 
+                           Placeholder=".product-description, #description" />
+            
+            <FluentTextField @bind-Value="currentConfig.ProductSkuSelector" 
+                           Label="SKU Selector" 
+                           Style="width: 100%;" 
+                           Placeholder=".product-sku, [data-pid]" />
+            
+            <FluentDivider Role="DividerRole.Presentation" />
+            
+            <h3>?? Crawler Settings</h3>
+            
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; width: 100%;">
+                <FluentNumberField @bind-Value="currentConfig.MaxPagesToCrawl" 
+                                 Label="Max Pages to Crawl" 
+                                 Style="flex: 1;" 
+                                 Min="1" />
+                
+                <FluentNumberField @bind-Value="currentConfig.CrawlDelayMilliseconds" 
+                                 Label="Crawl Delay (ms)" 
+                                 Style="flex: 1;" 
+                                 Min="100" />
+            </FluentStack>
+            
+            <FluentTextField @bind-Value="currentConfig.ImageDownloadPath" 
+                           Label="Image Download Path" 
+                           Style="width: 100%;" 
+                           Placeholder="wwwroot/images/products" />
+            
+            <FluentDivider Role="DividerRole.Presentation" />
+            
+            <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
+                <FluentButton Appearance="Appearance.Accent" OnClick="SaveCurrentConfig">
+                    ?? Save Configuration
+                </FluentButton>
+                
+                @if (editingConfig != null)
+                {
+                    <FluentButton Appearance="Appearance.Neutral" OnClick="CancelEdit">
+                        ? Cancel Edit
+                    </FluentButton>
+                }
+                
+                <FluentButton Appearance="Appearance.Neutral" OnClick="ClearForm">
+                    ?? Clear Form
+                </FluentButton>
+            </FluentStack>
+            
+        </FluentStack>
+    </FluentCard>
+
+    @* Messages *@
+    @if (!string.IsNullOrEmpty(message))
+    {
+        <FluentMessageBar Title="@messageTitle" Intent="@intent">
+            @message
+        </FluentMessageBar>
+    }
+    
+    @* Help Section *@
+    <FluentCard>
+        <h3>?? How to Use</h3>
+        <ol>
+            <li><strong>Create a Configuration:</strong> Fill in the brand name and target URL</li>
+            <li><strong>Add Selectors:</strong> Use browser DevTools to find CSS selectors for product data</li>
+            <li><strong>Save:</strong> Click "Save Configuration" to store it</li>
+            <li><strong>Load:</strong> Click "Load" to apply the configuration to the crawler</li>
+            <li><strong>Start Crawling:</strong> Go to the Products page and start crawling</li>
+        </ol>
+        
+        <h4>?? Finding CSS Selectors (Chrome/Edge):</h4>
+        <ol>
+            <li>Right-click on a product name ? Inspect</li>
+            <li>In DevTools, right-click the highlighted HTML element</li>
+            <li>Select "Copy" ? "Copy selector"</li>
+            <li>Paste it into the appropriate selector field</li>
+            <li>Repeat for price, images, description, and SKU</li>
+        </ol>
+    </FluentCard>
+    
+</FluentStack>
+
+@code {
+    private List<BrandConfig> configs = new();
+    private BrandConfig currentConfig = new();
+    private BrandConfig? editingConfig = null;
+    
+    private string? message;
+    private string? messageTitle;
+    private MessageIntent intent = MessageIntent.Info;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshConfigs();
+    }
+
+    private async Task RefreshConfigs()
+    {
+        configs = await BrandConfigService.GetAllConfigsAsync();
+    }
+
+    private async Task SaveCurrentConfig()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(currentConfig.BrandName))
+            {
+                ShowMessage("? Brand name is required", "Validation Error", MessageIntent.Error);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(currentConfig.TargetUrl))
+            {
+                ShowMessage("? Target URL is required", "Validation Error", MessageIntent.Error);
+                return;
+            }
+
+            var success = await BrandConfigService.SaveConfigAsync(currentConfig);
+            
+            if (success)
+            {
+                ShowMessage($"? Configuration for '{currentConfig.BrandName}' saved successfully!", "Success", MessageIntent.Success);
+                await RefreshConfigs();
+                ClearForm();
+            }
+            else
+            {
+                ShowMessage("? Failed to save configuration", "Error", MessageIntent.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowMessage($"? Error: {ex.Message}", "Error", MessageIntent.Error);
+        }
+    }
+
+    private void EditConfig(BrandConfig config)
+    {
+        editingConfig = config;
+        currentConfig = new BrandConfig
+        {
+            BrandName = config.BrandName,
+            TargetUrl = config.TargetUrl,
+            LoginUrl = config.LoginUrl,
+            Username = config.Username,
+            Password = config.Password,
+            UsernameFieldName = config.UsernameFieldName,
+            PasswordFieldName = config.PasswordFieldName,
+            MaxPagesToCrawl = config.MaxPagesToCrawl,
+            CrawlDelayMilliseconds = config.CrawlDelayMilliseconds,
+            ImageDownloadPath = config.ImageDownloadPath,
+            ProductNameSelector = config.ProductNameSelector,
+            ProductPriceSelector = config.ProductPriceSelector,
+            ProductImageSelector = config.ProductImageSelector,
+            ProductDescriptionSelector = config.ProductDescriptionSelector,
+            ProductSkuSelector = config.ProductSkuSelector
+        };
+    }
+
+    private async Task LoadConfig(BrandConfig config)
+    {
+        try
+        {
+            BrandConfigService.ApplyConfigToCrawlerSettings(config, CrawlerSettings);
+            await BrandConfigService.SaveConfigAsync(config); // Update LastUsed timestamp
+            
+            ShowMessage($"? Configuration for '{config.BrandName}' loaded! Ready to crawl.", "Success", MessageIntent.Success);
+            
+            // Navigate to crawler config page after a short delay
+            await Task.Delay(1500);
+            NavigationManager.NavigateTo("/products");
+        }
+        catch (Exception ex)
+        {
+            ShowMessage($"? Error loading configuration: {ex.Message}", "Error", MessageIntent.Error);
+        }
+    }
+
+    private async Task DeleteConfig(string brandName)
+    {
+        try
+        {
+            var success = await BrandConfigService.DeleteConfigAsync(brandName);
+            
+            if (success)
+            {
+                ShowMessage($"??? Configuration for '{brandName}' deleted", "Success", MessageIntent.Success);
+                await RefreshConfigs();
+            }
+            else
+            {
+                ShowMessage("? Failed to delete configuration", "Error", MessageIntent.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowMessage($"? Error: {ex.Message}", "Error", MessageIntent.Error);
+        }
+    }
+
+    private void CancelEdit()
+    {
+        editingConfig = null;
+        ClearForm();
+    }
+
+    private void ClearForm()
+    {
+        editingConfig = null;
+        currentConfig = new BrandConfig();
+        message = null;
+    }
+
+    private void ShowMessage(string msg, string title, MessageIntent msgIntent)
+    {
+        message = msg;
+        messageTitle = title;
+        intent = msgIntent;
+        StateHasChanged();
+    }
+}
