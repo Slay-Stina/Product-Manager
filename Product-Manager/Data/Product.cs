@@ -14,7 +14,7 @@ public class Product
     [MaxLength(50)]
     public string? ColorId { get; set; }
 
-    [MaxLength(500)]
+    [MaxLength(2000)]
     public string? Description { get; set; }
 
     public string? ImageUrl { get; set; }

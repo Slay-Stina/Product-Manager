@@ -3,6 +3,7 @@ using Abot2.Poco;
 using AngleSharp.Html.Dom;
 using Microsoft.EntityFrameworkCore;
 using Product_Manager.Data;
+using Product_Manager.Models;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -16,6 +17,9 @@ public class ProductCrawlerService
     private readonly ILogger<ProductCrawlerService> _logger;
     private readonly HttpClient _httpClient;
     private CookieContainer _cookieContainer;
+    
+    // Current brand configuration with selectors
+    private BrandConfig? _currentBrandConfig;
 
     public ProductCrawlerService(
         ApplicationDbContext context,
@@ -36,6 +40,15 @@ public class ProductCrawlerService
         
         // Ensure UTF-8 encoding is registered
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+    }
+    
+    /// <summary>
+    /// Set the brand configuration to use for parsing products
+    /// </summary>
+    public void SetBrandConfig(BrandConfig brandConfig)
+    {
+        _currentBrandConfig = brandConfig;
+        _logger.LogInformation("?? Using brand configuration: {BrandName}", brandConfig.BrandName);
     }
 
     public async Task<bool> AuthenticateAsync()
@@ -183,33 +196,37 @@ public class ProductCrawlerService
 
     private void ParseAndSaveProducts(IHtmlDocument document, string pageUrl)
     {
-        // TODO: Customize these selectors based on the actual HTML structure of your target website
-        // This is a template that you'll need to adjust
-
         try
         {
-            // Example: Find all product containers (adjust selector as needed)
-            var productElements = document.QuerySelectorAll(".product-item, .product, [data-product]");
+            // Use brand-specific selector or fallback to generic ones
+            string productContainerSelector;
+            
+            if (_currentBrandConfig != null && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductSkuSelector))
+            {
+                // For GANT, this would be ".product-grid__item[data-pid]"
+                productContainerSelector = ".product-grid__item";
+                _logger.LogInformation("?? Using brand-specific selector: {Selector}", productContainerSelector);
+            }
+            else
+            {
+                // Fallback to generic selectors
+                productContainerSelector = ".product-item, .product, [data-product], .product-grid__item";
+                _logger.LogWarning("?? No brand config set, using generic selectors");
+            }
+            
+            var productElements = document.QuerySelectorAll(productContainerSelector);
 
             _logger.LogInformation("Found {Count} potential product elements on page {Url}", productElements.Length, pageUrl);
 
             if (productElements.Length == 0)
             {
                 // Log the page structure to help with debugging
-                _logger.LogWarning("?? No products found with current selectors on page: {Url}", pageUrl);
+                _logger.LogWarning("?? No products found with selector '{Selector}' on page: {Url}", productContainerSelector, pageUrl);
                 _logger.LogInformation("?? Page title: '{Title}'", document.Title);
                 _logger.LogInformation("?? Page body classes: {Classes}", document.Body?.ClassName ?? "(none)");
                 
-                // Log a sample of the page HTML to help identify the correct selectors
-                var bodyHtml = document.Body?.InnerHtml;
-                if (!string.IsNullOrEmpty(bodyHtml))
-                {
-                    var sample = bodyHtml.Length > 1000 ? bodyHtml.Substring(0, 1000) : bodyHtml;
-                    _logger.LogDebug("?? Page HTML sample (first 1000 chars):\n{HtmlSample}", sample);
-                }
-                
                 // Try to find any common product-related elements
-                var allDivs = document.QuerySelectorAll("div[class*='product'], div[id*='product'], article, .item, [data-product-id]");
+                var allDivs = document.QuerySelectorAll("div[class*='product'], div[id*='product'], article, .item, [data-product-id], [data-pid]");
                 _logger.LogInformation("?? Found {Count} elements with potential product-related attributes", allDivs.Length);
                 
                 if (allDivs.Length > 0)
@@ -219,43 +236,85 @@ public class ProductCrawlerService
                     {
                         var className = div.ClassName;
                         var id = div.Id;
-                        _logger.LogInformation("  - Element: {TagName}, Class: '{ClassName}', ID: '{Id}'", 
-                            div.TagName, className ?? "(none)", id ?? "(none)");
+                        var dataPid = div.GetAttribute("data-pid");
+                        _logger.LogInformation("  - Element: {TagName}, Class: '{ClassName}', ID: '{Id}', data-pid: '{DataPid}'", 
+                            div.TagName, className ?? "(none)", id ?? "(none)", dataPid ?? "(none)");
                     }
                 }
+                
+                return;
             }
 
             foreach (var productElement in productElements)
             {
                 try
                 {
-                    // Extract product information (adjust selectors based on actual HTML)
-                    var articleNumber = ExtractText(productElement, ".product-id, .article-number, [data-article-id]");
-                    var colorId = ExtractText(productElement, ".color-id, .product-color, [data-color]");
-                    var description = ExtractText(productElement, ".product-description, .description, p");
-                    var imageUrl = ExtractImageUrl(productElement, "img");
+                    // Extract product information using brand-specific selectors
+                    string? articleNumber = null;
+                    string? productName = null;
+                    string? price = null;
+                    string? description = null;
+                    string? imageUrl = null;
+                    
+                    if (_currentBrandConfig != null)
+                    {
+                        // Extract SKU from data-pid attribute
+                        articleNumber = productElement.GetAttribute("data-pid");
+                        
+                        // Use brand-specific selectors for other fields
+                        productName = ExtractText(productElement, _currentBrandConfig.ProductNameSelector);
+                        price = ExtractText(productElement, _currentBrandConfig.ProductPriceSelector);
+                        description = ExtractText(productElement, _currentBrandConfig.ProductDescriptionSelector);
+                        imageUrl = ExtractImageUrl(productElement, _currentBrandConfig.ProductImageSelector);
+                        
+                        _logger.LogDebug("?? Extracted - SKU: {SKU}, Name: {Name}, Price: {Price}", 
+                            articleNumber ?? "(none)", productName ?? "(none)", price ?? "(none)");
+                    }
+                    else
+                    {
+                        // Fallback to generic extraction
+                        articleNumber = ExtractText(productElement, ".product-id, .article-number, [data-article-id]");
+                        productName = ExtractText(productElement, ".product-name, .product-title, h3, h2");
+                        price = ExtractText(productElement, ".price, .product-price");
+                        description = ExtractText(productElement, ".product-description, .description, p");
+                        imageUrl = ExtractImageUrl(productElement, "img");
+                    }
 
                     if (string.IsNullOrWhiteSpace(articleNumber))
                     {
-                        _logger.LogDebug("Skipping element - no article number found");
-                        continue; // Skip if no article number found
+                        _logger.LogDebug("?? Skipping element - no article number/SKU found");
+                        continue;
                     }
 
-                    _logger.LogInformation("Found product: Article={ArticleNumber}, Color={ColorId}, HasImage={HasImage}",
-                        articleNumber, colorId ?? "N/A", !string.IsNullOrEmpty(imageUrl));
+                    // Combine product name and price into description if available
+                    var fullDescription = description;
+                    if (!string.IsNullOrWhiteSpace(productName))
+                    {
+                        fullDescription = productName;
+                        if (!string.IsNullOrWhiteSpace(price))
+                        {
+                            fullDescription += $" - {price}";
+                        }
+                        if (!string.IsNullOrWhiteSpace(description))                        {
+                            fullDescription += $" | {description}";
+                        }
+                    }
+
+                    _logger.LogInformation("? Found product: SKU={ArticleNumber}, Name={Name}, Price={Price}, HasImage={HasImage}",
+                        articleNumber, productName ?? "N/A", price ?? "N/A", !string.IsNullOrEmpty(imageUrl));
 
                     // Save to database
-                    SaveProduct(articleNumber, colorId, description, imageUrl);
+                    SaveProduct(articleNumber, null, fullDescription, imageUrl);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error parsing individual product element");
+                    _logger.LogError(ex, "? Error parsing individual product element");
                 }
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in ParseAndSaveProducts for page {Url}", pageUrl);
+            _logger.LogError(ex, "? Error in ParseAndSaveProducts for page {Url}", pageUrl);
         }
     }
 
@@ -267,8 +326,29 @@ public class ProductCrawlerService
 
     private string? ExtractImageUrl(AngleSharp.Dom.IElement element, string selector)
     {
-        var imgElement = element.QuerySelector(selector) as IHtmlImageElement;
-        return imgElement?.Source;
+        var imgElement = element.QuerySelector(selector);
+        if (imgElement == null)
+            return null;
+
+        // Try multiple common image attributes
+        var imageUrl = imgElement.GetAttribute("src") 
+                    ?? imgElement.GetAttribute("data-src") 
+                    ?? imgElement.GetAttribute("data-original")
+                    ?? imgElement.GetAttribute("data-lazy-src");
+
+        // If we found a srcset, extract the first URL
+        if (string.IsNullOrEmpty(imageUrl))
+        {
+            var srcset = imgElement.GetAttribute("srcset");
+            if (!string.IsNullOrEmpty(srcset))
+            {
+                // srcset format: "url 1x, url 2x" or "url 480w, url 800w"
+                var firstUrl = srcset.Split(',')[0].Trim().Split(' ')[0];
+                imageUrl = firstUrl;
+            }
+        }
+
+        return imageUrl;
     }
 
     private void SaveProduct(string articleNumber, string? colorId, string? description, string? imageUrl)

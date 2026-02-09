@@ -1,9 +1,12 @@
 ﻿@page "/products"
 @using Product_Manager.Data
 @using Product_Manager.Services
+@using Product_Manager.Models
+@implements IDisposable
 @inject ProductCrawlerService CrawlerService
+@inject BrandConfigService BrandConfigService
+@inject CrawlerSettings CrawlerSettings
 @inject ILogger<Products> Logger
-@attribute [StreamRendering]
 @rendermode InteractiveServer
 
 <PageTitle>🛒 Products</PageTitle>
@@ -70,6 +73,7 @@ else
     private bool isRunning = false;
     private string? statusMessage;
     private MessageIntent messageIntent = MessageIntent.Info;
+    private bool _disposed = false;
 
     protected override async Task OnInitializedAsync()
     {
@@ -83,25 +87,98 @@ else
             var productList = await CrawlerService.GetAllProductsAsync();
             products = productList.AsQueryable();
             Logger.LogInformation("✅ Loaded {Count} products", productList.Count);
+            
+            // Safely update UI
+            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "❌ Error loading products");
             statusMessage = $"❌ Error loading products: {ex.Message}";
             messageIntent = MessageIntent.Error;
+            
+            // Safely update UI
+            await InvokeAsync(StateHasChanged);
         }
     }
 
     private async Task StartCrawler()
     {
+        if (_disposed) return;
+        
         isRunning = true;
         statusMessage = "🕷️ Starting crawler... This may take a few minutes. ⏳";
         messageIntent = MessageIntent.Info;
-        StateHasChanged();
+        await InvokeAsync(StateHasChanged);
 
         try
         {
+            // Try to find a matching brand config based on the current target URL
+            Logger.LogInformation("🔍 Looking for brand config matching URL: {Url}", CrawlerSettings.TargetUrl);
+            
+            var allConfigs = await BrandConfigService.GetAllConfigsAsync();
+            Logger.LogInformation("📚 Found {Count} total brand configs", allConfigs.Count);
+            
+            BrandConfig? matchingConfig = null;
+            
+            if (!string.IsNullOrWhiteSpace(CrawlerSettings.TargetUrl))
+            {
+                try
+                {
+                    var targetUri = new Uri(CrawlerSettings.TargetUrl);
+                    var targetHost = targetUri.Host;
+                    
+                    Logger.LogInformation("🎯 Target host: {Host}", targetHost);
+                    
+                    foreach (var config in allConfigs)
+                    {
+                        if (!string.IsNullOrWhiteSpace(config.TargetUrl))
+                        {
+                            try
+                            {
+                                var configUri = new Uri(config.TargetUrl);
+                                var configHost = configUri.Host;
+                                Logger.LogInformation("🔍 Checking config '{BrandName}' with host: {Host}", config.BrandName, configHost);
+                                
+                                if (targetHost.Equals(configHost, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    matchingConfig = config;
+                                    Logger.LogInformation("✅ Found match: {BrandName}", config.BrandName);
+                                    break;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.LogWarning(ex, "⚠ Error parsing config URL for {BrandName}", config.BrandName);
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "❌ Error parsing target URL");
+                }
+            }
+            
+            if (matchingConfig != null)
+            {
+                Logger.LogInformation("📋 Applying brand config: {BrandName}", matchingConfig.BrandName);
+                CrawlerService.SetBrandConfig(matchingConfig);
+                statusMessage = $"🕷️ Using {matchingConfig.BrandName} configuration. Starting crawler...";
+                if (!_disposed) await InvokeAsync(StateHasChanged);
+                await Task.Delay(500); // Give UI time to update
+            }
+            else
+            {
+                Logger.LogWarning("⚠️ No matching brand config found for {Url}", CrawlerSettings.TargetUrl);
+                statusMessage = "⚠️ No brand config found. Using generic selectors...";
+                if (!_disposed) await InvokeAsync(StateHasChanged);
+                await Task.Delay(500);
+            }
+            
             await Task.Run(async () => await CrawlerService.StartCrawlingAsync());
+            
+            if (_disposed) return;
             
             statusMessage = "✅ Crawling completed successfully! 🎉";
             messageIntent = MessageIntent.Success;
@@ -117,8 +194,13 @@ else
         finally
         {
             isRunning = false;
-            StateHasChanged();
+            if (!_disposed) await InvokeAsync(StateHasChanged);
         }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
     }
 }
 

@@ -51,8 +51,14 @@ public class RateLimitingMiddleware
         if (isRateLimited)
         {
             _logger.LogWarning("Rate limit exceeded for IP: {ClientIp}", clientIp);
-            context.Response.StatusCode = 429; // Too Many Requests
-            context.Response.Headers.Append("Retry-After", "60");
+            
+            // Ensure headers are set before response starts
+            if (!context.Response.HasStarted)
+            {
+                context.Response.StatusCode = 429; // Too Many Requests
+                context.Response.Headers.Append("Retry-After", "60");
+            }
+            
             await context.Response.WriteAsync("Rate limit exceeded. Please try again later.");
             return;
         }

@@ -1,4 +1,4 @@
-@page "/brand-configs"
+﻿@page "/brand-configs"
 @using Product_Manager.Models
 @using Product_Manager.Services
 @inject BrandConfigService BrandConfigService
@@ -6,9 +6,9 @@
 @inject NavigationManager NavigationManager
 @rendermode InteractiveServer
 
-<PageTitle>??? Brand Configurations</PageTitle>
+<PageTitle>🏷 Brand Configurations</PageTitle>
 
-<h1>??? Brand Crawler Configurations</h1>
+<h1>🏷️ Brand Crawler Configurations</h1>
 
 <p>Manage configurations for different brands and image banks. Each brand can have its own settings and selectors.</p>
 
@@ -16,7 +16,7 @@
     
     @* Current Configurations List *@
     <FluentCard>
-        <h2>?? Saved Configurations</h2>
+        <h2>📋 Saved Configurations</h2>
         
         @if (configs.Any())
         {
@@ -27,13 +27,13 @@
                 <TemplateColumn Title="Actions">
                     <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
                         <FluentButton Appearance="Appearance.Accent" OnClick="@(() => LoadConfig(context))">
-                            ? Load
+                            ⚡ Load
                         </FluentButton>
                         <FluentButton Appearance="Appearance.Neutral" OnClick="@(() => EditConfig(context))">
-                            ?? Edit
+                            ✏️ Edit
                         </FluentButton>
                         <FluentButton Appearance="Appearance.Neutral" OnClick="@(() => DeleteConfig(context.BrandName))">
-                            ??? Delete
+                            🗑️ Delete
                         </FluentButton>
                     </FluentStack>
                 </TemplateColumn>
@@ -42,14 +42,14 @@
         else
         {
             <p style="padding: 20px; text-align: center; color: var(--neutral-foreground-hint);">
-                ?? No saved configurations yet. Create one below!
+                📭 No saved configurations yet. Create one below!
             </p>
         }
     </FluentCard>
 
     @* Configuration Form *@
     <FluentCard>
-        <h2>@(editingConfig != null ? "?? Edit Configuration" : "? New Configuration")</h2>
+        <h2>@(editingConfig != null ? "✏️ Edit Configuration" : "➕ New Configuration")</h2>
         
         <FluentStack Orientation="Orientation.Vertical" Style="gap: 15px;">
             
@@ -62,7 +62,7 @@
             
             <FluentDivider Role="DividerRole.Presentation" />
             
-            <h3>?? URL Settings</h3>
+            <h3>🌐 URL Settings</h3>
             
             <FluentTextField @bind-Value="currentConfig.TargetUrl" 
                            Label="Target URL *" 
@@ -80,7 +80,7 @@
             
             <FluentDivider Role="DividerRole.Presentation" />
             
-            <h3>?? Authentication (Optional)</h3>
+            <h3>🔐 Authentication (Optional)</h3>
             
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; width: 100%;">
                 <FluentTextField @bind-Value="currentConfig.Username" 
@@ -111,7 +111,7 @@
             
             <FluentDivider Role="DividerRole.Presentation" />
             
-            <h3>?? HTML Selectors</h3>
+            <h3>🎯 HTML Selectors</h3>
             <p style="color: var(--neutral-foreground-hint); font-size: 0.875rem;">
                 CSS selectors to extract product data from the HTML. Use browser DevTools to inspect the page.
             </p>
@@ -143,7 +143,7 @@
             
             <FluentDivider Role="DividerRole.Presentation" />
             
-            <h3>?? Crawler Settings</h3>
+            <h3>⚙️ Crawler Settings</h3>
             
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px; width: 100%;">
                 <FluentNumberField @bind-Value="currentConfig.MaxPagesToCrawl" 
@@ -166,18 +166,18 @@
             
             <FluentStack Orientation="Orientation.Horizontal" Style="gap: 10px;">
                 <FluentButton Appearance="Appearance.Accent" OnClick="SaveCurrentConfig">
-                    ?? Save Configuration
+                    💾 Save Configuration
                 </FluentButton>
                 
                 @if (editingConfig != null)
                 {
                     <FluentButton Appearance="Appearance.Neutral" OnClick="CancelEdit">
-                        ? Cancel Edit
+                        ❌ Cancel Edit
                     </FluentButton>
                 }
                 
                 <FluentButton Appearance="Appearance.Neutral" OnClick="ClearForm">
-                    ?? Clear Form
+                    🧹 Clear Form
                 </FluentButton>
             </FluentStack>
             
@@ -194,7 +194,7 @@
     
     @* Help Section *@
     <FluentCard>
-        <h3>?? How to Use</h3>
+        <h3>💡 How to Use</h3>
         <ol>
             <li><strong>Create a Configuration:</strong> Fill in the brand name and target URL</li>
             <li><strong>Add Selectors:</strong> Use browser DevTools to find CSS selectors for product data</li>
@@ -203,11 +203,11 @@
             <li><strong>Start Crawling:</strong> Go to the Products page and start crawling</li>
         </ol>
         
-        <h4>?? Finding CSS Selectors (Chrome/Edge):</h4>
+        <h4>🔍 Finding CSS Selectors (Chrome/Edge):</h4>
         <ol>
-            <li>Right-click on a product name ? Inspect</li>
+            <li>Right-click on a product name → Inspect</li>
             <li>In DevTools, right-click the highlighted HTML element</li>
-            <li>Select "Copy" ? "Copy selector"</li>
+            <li>Select "Copy" → "Copy selector"</li>
             <li>Paste it into the appropriate selector field</li>
             <li>Repeat for price, images, description, and SKU</li>
         </ol>
@@ -240,13 +240,13 @@
         {
             if (string.IsNullOrWhiteSpace(currentConfig.BrandName))
             {
-                ShowMessage("? Brand name is required", "Validation Error", MessageIntent.Error);
+                ShowMessage("❌ Brand name is required", "Validation Error", MessageIntent.Error);
                 return;
             }
 
             if (string.IsNullOrWhiteSpace(currentConfig.TargetUrl))
             {
-                ShowMessage("? Target URL is required", "Validation Error", MessageIntent.Error);
+                ShowMessage("❌ Target URL is required", "Validation Error", MessageIntent.Error);
                 return;
             }
 
@@ -254,18 +254,18 @@
             
             if (success)
             {
-                ShowMessage($"? Configuration for '{currentConfig.BrandName}' saved successfully!", "Success", MessageIntent.Success);
+                ShowMessage($"✅ Configuration for '{currentConfig.BrandName}' saved successfully!", "Success", MessageIntent.Success);
                 await RefreshConfigs();
                 ClearForm();
             }
             else
             {
-                ShowMessage("? Failed to save configuration", "Error", MessageIntent.Error);
+                ShowMessage("❌ Failed to save configuration", "Error", MessageIntent.Error);
             }
         }
         catch (Exception ex)
         {
-            ShowMessage($"? Error: {ex.Message}", "Error", MessageIntent.Error);
+            ShowMessage($"❌ Error: {ex.Message}", "Error", MessageIntent.Error);
         }
     }
 
@@ -299,7 +299,7 @@
             BrandConfigService.ApplyConfigToCrawlerSettings(config, CrawlerSettings);
             await BrandConfigService.SaveConfigAsync(config); // Update LastUsed timestamp
             
-            ShowMessage($"? Configuration for '{config.BrandName}' loaded! Ready to crawl.", "Success", MessageIntent.Success);
+            ShowMessage($"✅ Configuration for '{config.BrandName}' loaded! Ready to crawl.", "Success", MessageIntent.Success);
             
             // Navigate to crawler config page after a short delay
             await Task.Delay(1500);
@@ -307,7 +307,7 @@
         }
         catch (Exception ex)
         {
-            ShowMessage($"? Error loading configuration: {ex.Message}", "Error", MessageIntent.Error);
+            ShowMessage($"❌ Error loading configuration: {ex.Message}", "Error", MessageIntent.Error);
         }
     }
 
@@ -319,17 +319,17 @@
             
             if (success)
             {
-                ShowMessage($"??? Configuration for '{brandName}' deleted", "Success", MessageIntent.Success);
+                ShowMessage($"🗑️ Configuration for '{brandName}' deleted", "Success", MessageIntent.Success);
                 await RefreshConfigs();
             }
             else
             {
-                ShowMessage("? Failed to delete configuration", "Error", MessageIntent.Error);
+                ShowMessage("❌ Failed to delete configuration", "Error", MessageIntent.Error);
             }
         }
         catch (Exception ex)
         {
-            ShowMessage($"? Error: {ex.Message}", "Error", MessageIntent.Error);
+            ShowMessage($"❌ Error: {ex.Message}", "Error", MessageIntent.Error);
         }
     }
 
