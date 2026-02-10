@@ -10,7 +10,7 @@ using System.Text.RegularExpressions;
 
 namespace Product_Manager.Services;
 
-public class ProductCrawlerService
+public partial class ProductCrawlerService
 {
     private readonly ApplicationDbContext _context;
     private readonly CrawlerSettings _settings;
@@ -20,6 +20,10 @@ public class ProductCrawlerService
     
     // Current brand configuration with selectors
     private BrandConfig? _currentBrandConfig;
+    
+    // Compiled regex for extracting attribute names from selectors
+    [GeneratedRegex(@"^\[([^\]]+)\]$", RegexOptions.Compiled)]
+    private static partial Regex AttributeSelectorRegex();
 
     public ProductCrawlerService(
         ApplicationDbContext context,
@@ -262,15 +266,11 @@ public class ProductCrawlerService
                         if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductSkuSelector))
                         {
                             // Check if selector is for an attribute (e.g., "[data-pid]")
-                            if (_currentBrandConfig.ProductSkuSelector.StartsWith("[") && _currentBrandConfig.ProductSkuSelector.Contains("]"))
+                            var attrMatch = AttributeSelectorRegex().Match(_currentBrandConfig.ProductSkuSelector);
+                            if (attrMatch.Success)
                             {
-                                // Extract attribute name from selector like "[data-pid]"
-                                var attrMatch = System.Text.RegularExpressions.Regex.Match(
-                                    _currentBrandConfig.ProductSkuSelector, @"\[([^\]]+)\]");
-                                if (attrMatch.Success)
-                                {
-                                    articleNumber = productElement.GetAttribute(attrMatch.Groups[1].Value);
-                                }
+                                // Extract attribute value from element
+                                articleNumber = productElement.GetAttribute(attrMatch.Groups[1].Value);
                             }
                             else
                             {

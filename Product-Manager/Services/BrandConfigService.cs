@@ -14,6 +14,7 @@ public class BrandConfigService
     public BrandConfigService(ILogger<BrandConfigService> logger, IWebHostEnvironment environment)
     {
         _logger = logger;
+        // IWebHostEnvironment is only used to get ContentRootPath for the config file location
         _configFilePath = Path.Combine(environment.ContentRootPath, "Data", "brand-configs.json");
         
         // Configure JSON options for UTF-8 support
