@@ -11,10 +11,10 @@ public class BrandConfigService
     private readonly ILogger<BrandConfigService> _logger;
     private readonly JsonSerializerOptions _jsonOptions;
 
-    public BrandConfigService(ILogger<BrandConfigService> logger)
+    public BrandConfigService(ILogger<BrandConfigService> logger, IWebHostEnvironment environment)
     {
         _logger = logger;
-        _configFilePath = Path.Combine("Data", "brand-configs.json");
+        _configFilePath = Path.Combine(environment.ContentRootPath, "Data", "brand-configs.json");
         
         // Configure JSON options for UTF-8 support
         _jsonOptions = new JsonSerializerOptions

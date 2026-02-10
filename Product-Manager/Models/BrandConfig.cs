@@ -14,6 +14,7 @@ public class BrandConfig
     public string ImageDownloadPath { get; set; } = "wwwroot/images/products";
     
     // Brand-specific selectors
+    public string ProductContainerSelector { get; set; } = string.Empty;
     public string ProductNameSelector { get; set; } = string.Empty;
     public string ProductPriceSelector { get; set; } = string.Empty;
     public string ProductImageSelector { get; set; } = string.Empty;

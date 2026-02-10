@@ -14,13 +14,13 @@ The crawler reports finding products (e.g., "Found 6 potential product elements"
 
 **Solution:**
 1. Go to Brand Configs page
-2. Click "? Load" on the appropriate brand
+2. Click "âš¡ Load" on the appropriate brand
 3. Verify the crawler is using the correct selectors
 
 **Verify in logs:**
 ```
-?? Using brand configuration: GANT Sweden
-?? Using brand-specific selector: .product-grid__item
+ðŸŽ¯ Using brand configuration: GANT Sweden
+ðŸŽ¯ Using brand-specific selector: .product-grid__item
 ```
 
 #### 2. Incorrect CSS Selectors
@@ -140,11 +140,6 @@ Look for:
 ---
 
 *For historical changes and fixes, see [CHANGELOG.md](../CHANGELOG.md)*
-    
-    // Then start crawling
-    await CrawlerService.StartCrawlingAsync();
-}
-```
 
 ### Issue #2: No Logging to Diagnose the Problem
 Added comprehensive logging to show:
@@ -173,14 +168,14 @@ Found 6 potential product elements
 ### 2. Verify Products Are Saved
 After crawling completes, you should see:
 ```
-? Found product: SKU=9980082-252, Name=Necessär i läder, Price=1 150 kr, HasImage=True
-? Found product: SKU=9922047-5, Name=Toteväska i vaxad bomull, Price=2 450 kr, HasImage=True
+? Found product: SKU=9980082-252, Name=Necessï¿½r i lï¿½der, Price=1 150 kr, HasImage=True
+? Found product: SKU=9922047-5, Name=Totevï¿½ska i vaxad bomull, Price=2 450 kr, HasImage=True
 ```
 
 ### 3. Check the Products Page
 The products grid should now display:
 - Article Number: 9980082-252, 9922047-5, etc.
-- Description: "Necessär i läder - 1 150 kr"
+- Description: "Necessï¿½r i lï¿½der - 1 150 kr"
 - Product Images
 - Created Date
 
@@ -203,7 +198,7 @@ The products grid should now display:
 
 4. **Verify Products**
    - Products should appear in the grid
-   - Should have Swedish names like "Necessär i läder"
+   - Should have Swedish names like "Necessï¿½r i lï¿½der"
    - Should have prices in SEK (kr)
 
 ## If It Still Doesn't Work
@@ -237,7 +232,7 @@ If no match is found, verify:
 ### Check 4: Are Selectors Correct?
 ```
 Found 6 potential product elements
-?? Extracted - SKU: 9980082-252, Name: Necessär i läder, Price: 1 150 kr
+?? Extracted - SKU: 9980082-252, Name: Necessï¿½r i lï¿½der, Price: 1 150 kr
 ```
 If SKU is "(none)", the selectors are wrong:
 - Go to Brand Configs
@@ -287,7 +282,7 @@ Once products are loading correctly:
 10. ?? Using brand configuration: GANT Sweden
 11. ?? Using brand-specific selector: .product-grid__item
 12. Found 6 potential product elements
-13. ? Found product: SKU=9980082-252, Name=Necessär i läder, Price=1 150 kr
+13. ? Found product: SKU=9980082-252, Name=Necessï¿½r i lï¿½der, Price=1 150 kr
 14. [... more products ...]
 15. ? Crawl completed successfully!
 16. ?? Crawled 5 pages

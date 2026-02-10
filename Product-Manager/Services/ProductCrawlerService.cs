@@ -201,17 +201,17 @@ public class ProductCrawlerService
             // Use brand-specific selector or fallback to generic ones
             string productContainerSelector;
             
-            if (_currentBrandConfig != null && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductSkuSelector))
+            if (_currentBrandConfig != null && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductContainerSelector))
             {
-                // For GANT, this would be ".product-grid__item[data-pid]"
-                productContainerSelector = ".product-grid__item";
-                _logger.LogInformation("?? Using brand-specific selector: {Selector}", productContainerSelector);
+                // Use the brand-configured product selector
+                productContainerSelector = _currentBrandConfig.ProductContainerSelector;
+                _logger.LogInformation("🎯 Using brand-specific selector from config: {Selector}", productContainerSelector);
             }
             else
             {
                 // Fallback to generic selectors
                 productContainerSelector = ".product-item, .product, [data-product], .product-grid__item";
-                _logger.LogWarning("?? No brand config set, using generic selectors");
+                _logger.LogWarning("⚠️ No brand-specific product selector set, using generic selectors");
             }
             
             var productElements = document.QuerySelectorAll(productContainerSelector);
@@ -258,16 +258,49 @@ public class ProductCrawlerService
                     
                     if (_currentBrandConfig != null)
                     {
-                        // Extract SKU from data-pid attribute
-                        articleNumber = productElement.GetAttribute("data-pid");
+                        // Extract SKU using ProductSkuSelector
+                        if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductSkuSelector))
+                        {
+                            // Check if selector is for an attribute (e.g., "[data-pid]")
+                            if (_currentBrandConfig.ProductSkuSelector.StartsWith("[") && _currentBrandConfig.ProductSkuSelector.Contains("]"))
+                            {
+                                // Extract attribute name from selector like "[data-pid]"
+                                var attrMatch = System.Text.RegularExpressions.Regex.Match(
+                                    _currentBrandConfig.ProductSkuSelector, @"\[([^\]]+)\]");
+                                if (attrMatch.Success)
+                                {
+                                    articleNumber = productElement.GetAttribute(attrMatch.Groups[1].Value);
+                                }
+                            }
+                            else
+                            {
+                                // Use selector to find element containing SKU
+                                articleNumber = ExtractText(productElement, _currentBrandConfig.ProductSkuSelector);
+                            }
+                        }
                         
-                        // Use brand-specific selectors for other fields
-                        productName = ExtractText(productElement, _currentBrandConfig.ProductNameSelector);
-                        price = ExtractText(productElement, _currentBrandConfig.ProductPriceSelector);
-                        description = ExtractText(productElement, _currentBrandConfig.ProductDescriptionSelector);
-                        imageUrl = ExtractImageUrl(productElement, _currentBrandConfig.ProductImageSelector);
+                        // Use brand-specific selectors for other fields with null/whitespace guards
+                        if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductNameSelector))
+                        {
+                            productName = ExtractText(productElement, _currentBrandConfig.ProductNameSelector);
+                        }
                         
-                        _logger.LogDebug("?? Extracted - SKU: {SKU}, Name: {Name}, Price: {Price}", 
+                        if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPriceSelector))
+                        {
+                            price = ExtractText(productElement, _currentBrandConfig.ProductPriceSelector);
+                        }
+                        
+                        if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductDescriptionSelector))
+                        {
+                            description = ExtractText(productElement, _currentBrandConfig.ProductDescriptionSelector);
+                        }
+                        
+                        if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductImageSelector))
+                        {
+                            imageUrl = ExtractImageUrl(productElement, _currentBrandConfig.ProductImageSelector);
+                        }
+                        
+                        _logger.LogDebug("📊 Extracted - SKU: {SKU}, Name: {Name}, Price: {Price}", 
                             articleNumber ?? "(none)", productName ?? "(none)", price ?? "(none)");
                     }
                     else
@@ -295,7 +328,8 @@ public class ProductCrawlerService
                         {
                             fullDescription += $" - {price}";
                         }
-                        if (!string.IsNullOrWhiteSpace(description))                        {
+                        if (!string.IsNullOrWhiteSpace(description))
+                        {
                             fullDescription += $" | {description}";
                         }
                     }
