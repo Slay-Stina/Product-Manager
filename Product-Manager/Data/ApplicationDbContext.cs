@@ -24,7 +24,7 @@ namespace Product_Manager.Data
 
                 entity.Property(p => p.Description)
                     .IsUnicode(true)
-                    .HasMaxLength(500);
+                    .HasMaxLength(2000);
 
                 entity.Property(p => p.ImageUrl)
                     .IsUnicode(true);

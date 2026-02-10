@@ -1,0 +1,40 @@
+[
+  {
+    "BrandName": "GANT Sweden",
+    "TargetUrl": "https://www.gant.se/",
+    "LoginUrl": "",
+    "Username": "",
+    "Password": "",
+    "UsernameFieldName": "username",
+    "PasswordFieldName": "password",
+    "MaxPagesToCrawl": 50,
+    "CrawlDelayMilliseconds": 1500,
+    "ImageDownloadPath": "wwwroot/images/gant",
+    "ProductNameSelector": "#ot-pc-title",
+    "ProductPriceSelector": ".price-sales",
+    "ProductImageSelector": ".product-detail__grid-image img",
+    "ProductDescriptionSelector": "#ot-pc-desc",
+    "ProductSkuSelector": "[data-pid]",
+    "CreatedAt": "2025-01-30T12:00:00Z",
+    "LastUsed": null
+  },
+  {
+    "BrandName": "Example Generic Site",
+    "TargetUrl": "https://example.com/products",
+    "LoginUrl": "https://example.com/login",
+    "Username": "",
+    "Password": "",
+    "UsernameFieldName": "email",
+    "PasswordFieldName": "pass",
+    "MaxPagesToCrawl": 100,
+    "CrawlDelayMilliseconds": 1000,
+    "ImageDownloadPath": "wwwroot/images/products",
+    "ProductNameSelector": "h1.product-title",
+    "ProductPriceSelector": ".price",
+    "ProductImageSelector": ".product-image img",
+    "ProductDescriptionSelector": ".description",
+    "ProductSkuSelector": ".sku",
+    "CreatedAt": "2025-01-30T12:00:00Z",
+    "LastUsed": null
+  }
+]

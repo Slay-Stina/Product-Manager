@@ -1,0 +1,5 @@
+# Ignore brand configuration file to protect credentials
+brand-configs.json
+
+# Keep the example file for reference
+!brand-configs.example.json
