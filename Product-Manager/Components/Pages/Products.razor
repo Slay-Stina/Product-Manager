@@ -191,7 +191,17 @@ else
         finally
         {
             isRunning = false;
-            await InvokeAsync(StateHasChanged);
+            if (!_disposed)
+            {
+                try
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Component was disposed; safely ignore UI update.
+                }
+            }
         }
     }
 

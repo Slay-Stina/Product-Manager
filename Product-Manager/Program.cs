@@ -77,7 +77,7 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<ProductCrawlerService>();
 
 // Register brand configuration service
-builder.Services.AddSingleton<BrandConfigService>();
+builder.Services.AddScoped<BrandConfigService>();
 
 var app = builder.Build();
 
