@@ -191,7 +191,18 @@ else
         finally
         {
             isRunning = false;
-            await InvokeAsync(StateHasChanged);
+            if (!_disposed)
+            {
+                try
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (ObjectDisposedException ex)
+                {
+                    // Component was disposed during the crawl; this is expected if user navigates away
+                    Logger.LogDebug(ex, "Component disposed during state update");
+                }
+            }
         }
     }
 

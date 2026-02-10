@@ -24,7 +24,14 @@ public class BrandConfigService
             Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
         };
         
-        EnsureConfigFileExists();
+        try
+        {
+            EnsureConfigFileExists();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to initialize brand config file at {ConfigFilePath}. Brand configurations will not be available until the file is accessible.", _configFilePath);
+        }
     }
 
     private void EnsureConfigFileExists()
