@@ -7,20 +7,22 @@ namespace Product_Manager.Migrations
     /// <inheritdoc />
     public partial class IncreaseDescriptionLength : Migration
     {
-        /// <inheritdoc />
+        /// <summary>
+        /// Intentional no-op migration. Originally created to increase description length,
+        /// but the actual schema change was applied in a subsequent migration.
+        /// This migration is kept for history and migration chain integrity.
+        /// </summary>
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // Intentional no-op migration: originally named IncreaseDescriptionLength,
-            // but no schema changes are required. This statement is used only to make
-            // the migration explicit and non-empty.
-            migrationBuilder.Sql("/* No-op migration: IncreaseDescriptionLength has no schema changes. */");
+            // No schema changes required
         }
 
-        /// <inheritdoc />
+        /// <summary>
+        /// No-op rollback. No schema changes to revert.
+        /// </summary>
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            // Matching no-op for the Down migration to document that nothing is reverted.
-            migrationBuilder.Sql("/* No-op rollback: IncreaseDescriptionLength made no schema changes. */");
+            // No schema changes to revert
         }
     }
 }
