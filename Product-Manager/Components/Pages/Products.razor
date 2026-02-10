@@ -194,7 +194,7 @@ else
         finally
         {
             isRunning = false;
-            if (!_disposed) await InvokeAsync(StateHasChanged);
+            await InvokeAsync(StateHasChanged);
         }
     }
 
