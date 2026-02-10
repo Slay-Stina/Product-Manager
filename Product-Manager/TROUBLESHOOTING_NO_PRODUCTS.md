@@ -168,14 +168,14 @@ Found 6 potential product elements
 ### 2. Verify Products Are Saved
 After crawling completes, you should see:
 ```
-? Found product: SKU=9980082-252, Name=Necess�r i l�der, Price=1 150 kr, HasImage=True
-? Found product: SKU=9922047-5, Name=Totev�ska i vaxad bomull, Price=2 450 kr, HasImage=True
+? Found product: SKU=9980082-252, Name=Necessär i läder, Price=1 150 kr, HasImage=True
+? Found product: SKU=9922047-5, Name=Toteväska i vaxad bomull, Price=2 450 kr, HasImage=True
 ```
 
 ### 3. Check the Products Page
 The products grid should now display:
 - Article Number: 9980082-252, 9922047-5, etc.
-- Description: "Necess�r i l�der - 1 150 kr"
+- Description: "Necessär i läder - 1 150 kr"
 - Product Images
 - Created Date
 
@@ -198,7 +198,7 @@ The products grid should now display:
 
 4. **Verify Products**
    - Products should appear in the grid
-   - Should have Swedish names like "Necess�r i l�der"
+   - Should have Swedish names like "Necessär i läder"
    - Should have prices in SEK (kr)
 
 ## If It Still Doesn't Work
@@ -232,7 +232,7 @@ If no match is found, verify:
 ### Check 4: Are Selectors Correct?
 ```
 Found 6 potential product elements
-?? Extracted - SKU: 9980082-252, Name: Necess�r i l�der, Price: 1 150 kr
+?? Extracted - SKU: 9980082-252, Name: Necessär i läder, Price: 1 150 kr
 ```
 If SKU is "(none)", the selectors are wrong:
 - Go to Brand Configs
@@ -282,7 +282,7 @@ Once products are loading correctly:
 10. ?? Using brand configuration: GANT Sweden
 11. ?? Using brand-specific selector: .product-grid__item
 12. Found 6 potential product elements
-13. ? Found product: SKU=9980082-252, Name=Necess�r i l�der, Price=1 150 kr
+13. ? Found product: SKU=9980082-252, Name=Necessär i läder, Price=1 150 kr
 14. [... more products ...]
 15. ? Crawl completed successfully!
 16. ?? Crawled 5 pages
