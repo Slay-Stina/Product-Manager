@@ -130,27 +130,24 @@ else
                     
                     Logger.LogInformation("🎯 Target host: {Host}", targetHost);
                     
-                    foreach (var config in allConfigs)
+                    foreach (var config in allConfigs.Where(c => !string.IsNullOrWhiteSpace(c.TargetUrl)))
                     {
-                        if (!string.IsNullOrWhiteSpace(config.TargetUrl))
+                        try
                         {
-                            try
+                            var configUri = new Uri(config.TargetUrl);
+                            var configHost = configUri.Host;
+                            Logger.LogInformation("🔍 Checking config '{BrandName}' with host: {Host}", config.BrandName, configHost);
+                            
+                            if (targetHost.Equals(configHost, StringComparison.OrdinalIgnoreCase))
                             {
-                                var configUri = new Uri(config.TargetUrl);
-                                var configHost = configUri.Host;
-                                Logger.LogInformation("🔍 Checking config '{BrandName}' with host: {Host}", config.BrandName, configHost);
-                                
-                                if (targetHost.Equals(configHost, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    matchingConfig = config;
-                                    Logger.LogInformation("✅ Found match: {BrandName}", config.BrandName);
-                                    break;
-                                }
+                                matchingConfig = config;
+                                Logger.LogInformation("✅ Found match: {BrandName}", config.BrandName);
+                                break;
                             }
-                            catch (Exception ex)
-                            {
-                                Logger.LogWarning(ex, "⚠ Error parsing config URL for {BrandName}", config.BrandName);
-                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.LogWarning(ex, "⚠ Error parsing config URL for {BrandName}", config.BrandName);
                         }
                     }
                 }
@@ -176,7 +173,7 @@ else
                 await Task.Delay(500);
             }
             
-            await Task.Run(async () => await CrawlerService.StartCrawlingAsync());
+            await CrawlerService.StartCrawlingAsync();
             
             if (_disposed) return;
             
