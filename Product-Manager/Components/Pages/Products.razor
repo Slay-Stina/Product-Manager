@@ -197,9 +197,10 @@ else
                 {
                     await InvokeAsync(StateHasChanged);
                 }
-                catch (ObjectDisposedException)
+                catch (ObjectDisposedException ex)
                 {
-                    // Component was disposed; safely ignore UI update.
+                    // Component was disposed during the crawl; this is expected if user navigates away
+                    Logger.LogDebug(ex, "Component disposed during state update");
                 }
             }
         }

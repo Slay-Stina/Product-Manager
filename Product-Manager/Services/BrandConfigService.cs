@@ -30,7 +30,7 @@ public class BrandConfigService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to initialize brand config file. Config management may not work correctly.");
+            _logger.LogError(ex, "Failed to initialize brand config file at {ConfigFilePath}. Brand configurations will not be available until the file is accessible.", _configFilePath);
         }
     }
 
