@@ -75,6 +75,7 @@ builder.Services.AddSingleton(crawlerSettings);
 // Register crawler service
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ProductCrawlerService>();
+builder.Services.AddScoped<PlaywrightCrawlerService>();  // Add Playwright support
 
 // Register brand configuration service
 builder.Services.AddScoped<BrandConfigService>();

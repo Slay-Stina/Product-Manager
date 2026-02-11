@@ -17,6 +17,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="9.0.9" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.9" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="9.0.9" />
+    <PackageReference Include="Microsoft.Playwright" Version="1.58.0" />
     <!-- 
       Note: Abot 2.0.70 brings transitive dependencies on System.Net.Http 4.1.0 and 
       System.Security.Cryptography.X509Certificates 4.1.0, which show as vulnerable.

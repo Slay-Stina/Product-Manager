@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **[BREAKING]** Increased `Product.Description` max length from 500 to 2000 characters
 - Updated `ProductCrawlerService` to use brand-specific selectors instead of hardcoded ones
 - Replaced `StreamRendering` with proper `InteractiveServer` mode in Products component
-- Changed `StateHasChanged()` calls in Products component to use `await InvokeAsync(StateHasChanged)` for thread safety
+- Changed all `StateHasChanged()` calls to use `await InvokeAsync(StateHasChanged)` for thread safety
 - Updated `ExtractImageUrl()` to check multiple image source attributes
 
 ### Fixed
@@ -32,8 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thread safety issues in Blazor Server components with async state updates
 
 ### Database Migrations
-- `20260209144048_IncreaseDescriptionLength` - Obsolete/no-op migration (empty Up/Down methods, kept for history)
-- `20260209145251_UpdateDescriptionLengthInDbContext` - Increased `Product.Description` to nvarchar(2000) and updated DbContext Fluent API to match model
+- `20260209144048_IncreaseDescriptionLength` - Increased Description field to nvarchar(2000)
+- `20260209145251_UpdateDescriptionLengthInDbContext` - Updated DbContext Fluent API to match model
 
 ## [0.1.0] - Initial Release
 
