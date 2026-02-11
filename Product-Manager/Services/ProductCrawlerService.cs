@@ -930,14 +930,9 @@ public partial class ProductCrawlerService
                                 if (priceProperty.ValueKind == JsonValueKind.String)
                                 {
                                     var priceString = priceProperty.GetString();
-                                    if (double.TryParse(priceString, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue))
-                                    {
-                                        price = priceValue.ToString("F2");
-                                    }
-                                    else
-                                    {
-                                        price = priceString; // Keep original if parsing fails
-                                    }
+                                    price = double.TryParse(priceString, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue)
+                                        ? priceValue.ToString("F2")
+                                        : priceString; // Keep original if parsing fails
                                 }
                                 else if (priceProperty.ValueKind == JsonValueKind.Number)
                                 {
