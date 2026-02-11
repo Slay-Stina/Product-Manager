@@ -164,7 +164,13 @@ public class PlaywrightCrawlerService : IAsyncDisposable
                 _logger.LogInformation("🔍 Step 4: Extracting product links...");
                 var links = await page.Locator(selector).AllAsync();
                 
-                var baseUri = new Uri(categoryUrl);
+                // Validate categoryUrl and create base URI
+                if (!Uri.TryCreate(categoryUrl, UriKind.Absolute, out var baseUri))
+                {
+                    _logger.LogError("❌ Invalid category URL: {Url}", categoryUrl);
+                    return productLinks.ToList();
+                }
+                
                 var extractedLinks = await Task.WhenAll(links.Select(async link =>
                 {
                     var href = await link.GetAttributeAsync("href");
@@ -180,9 +186,9 @@ public class PlaywrightCrawlerService : IAsyncDisposable
                     return href;
                 }));
                 
-                foreach (var href in extractedLinks.Where(h => h != null))
+                foreach (var href in extractedLinks.OfType<string>())
                 {
-                    productLinks.Add(href!);
+                    productLinks.Add(href);
                 }
 
                 _logger.LogInformation("✅ Found {Count} unique product links", productLinks.Count);
