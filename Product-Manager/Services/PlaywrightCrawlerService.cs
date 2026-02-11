@@ -32,16 +32,33 @@ public class PlaywrightCrawlerService : IAsyncDisposable
             
             _playwright = await Playwright.CreateAsync();
             
+            // Check if we should disable sandbox (needed in some containerized environments)
+            var disableSandbox = Environment.GetEnvironmentVariable("PLAYWRIGHT_DISABLE_SANDBOX");
+            var shouldDisableSandbox = !string.IsNullOrEmpty(disableSandbox) && 
+                                      (disableSandbox.Equals("true", StringComparison.OrdinalIgnoreCase) || 
+                                       disableSandbox.Equals("1"));
+            
+            var args = new List<string>
+            {
+                "--disable-gpu",
+                "--disable-dev-shm-usage"
+            };
+            
+            if (shouldDisableSandbox)
+            {
+                _logger.LogWarning("⚠️ Running Playwright with sandbox disabled (PLAYWRIGHT_DISABLE_SANDBOX is set). This reduces security.");
+                args.Add("--disable-setuid-sandbox");
+                args.Add("--no-sandbox");
+            }
+            else
+            {
+                _logger.LogInformation("✅ Running Playwright with sandbox enabled for better security");
+            }
+            
             _browser = await _playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
             {
                 Headless = true,  // Run without UI
-                Args = new[]
-                {
-                    "--disable-gpu",
-                    "--disable-dev-shm-usage",
-                    "--disable-setuid-sandbox",
-                    "--no-sandbox"
-                }
+                Args = args.ToArray()
             });
 
             _isInitialized = true;
@@ -114,10 +131,11 @@ public class PlaywrightCrawlerService : IAsyncDisposable
                     try
                     {
                         _logger.LogInformation("🔍 Trying selector: {Selector}", testSelector);
+                        var timeoutMs = brandConfig.JavaScriptWaitTimeoutMs > 0 ? brandConfig.JavaScriptWaitTimeoutMs : 15000;
                         await page.WaitForSelectorAsync(testSelector, new PageWaitForSelectorOptions
                         {
                             State = WaitForSelectorState.Attached,
-                            Timeout = 10000  // 10 seconds per selector
+                            Timeout = timeoutMs
                         });
                         selector = testSelector;
                         found = true;
@@ -138,29 +156,35 @@ public class PlaywrightCrawlerService : IAsyncDisposable
                 }
 
                 // Give JavaScript extra time to finish rendering
-                _logger.LogInformation("⏳ Step 3: Waiting for JavaScript to finish (3 seconds)...");
-                await Task.Delay(3000);
+                var postRenderDelayMs = brandConfig.PostRenderDelayMs > 0 ? brandConfig.PostRenderDelayMs : 3000;
+                _logger.LogInformation("⏳ Step 3: Waiting for JavaScript to finish ({DelayMs} ms)...", postRenderDelayMs);
+                await Task.Delay(postRenderDelayMs);
 
                 // Extract all product links
                 _logger.LogInformation("🔍 Step 4: Extracting product links...");
                 var links = await page.Locator(selector).AllAsync();
                 
-                foreach (var link in links)
+                var baseUri = new Uri(categoryUrl);
+                var extractedLinks = await Task.WhenAll(links.Select(async link =>
                 {
                     var href = await link.GetAttributeAsync("href");
-                    if (!string.IsNullOrWhiteSpace(href))
+                    if (string.IsNullOrWhiteSpace(href))
+                        return null;
+                    
+                    // Make URL absolute if it's relative
+                    if (!href.StartsWith("http"))
                     {
-                        // Make URL absolute if it's relative
-                        if (!href.StartsWith("http"))
-                        {
-                            var baseUri = new Uri(categoryUrl);
-                            href = new Uri(baseUri, href).ToString();
-                        }
-                        
-                        if (!productLinks.Contains(href))
-                        {
-                            productLinks.Add(href);
-                        }
+                        href = new Uri(baseUri, href).ToString();
+                    }
+                    
+                    return href;
+                }));
+                
+                foreach (var href in extractedLinks.Where(h => h != null))
+                {
+                    if (!productLinks.Contains(href!))
+                    {
+                        productLinks.Add(href!);
                     }
                 }
 

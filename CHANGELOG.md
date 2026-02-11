@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Thread safety issues in Blazor Server components with async state updates
 
 ### Database Migrations
-- `20260209144048_IncreaseDescriptionLength` - Increased Description field to nvarchar(2000)
+- `20260209144048_IncreaseDescriptionLength` - No-op migration (kept for migration chain integrity)
 - `20260209145251_UpdateDescriptionLengthInDbContext` - Updated DbContext Fluent API to match model
 
 ## [0.1.0] - Initial Release
