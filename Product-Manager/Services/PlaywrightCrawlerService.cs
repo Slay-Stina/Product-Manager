@@ -76,7 +76,7 @@ public class PlaywrightCrawlerService : IAsyncDisposable
     /// </summary>
     public async Task<List<string>> GetProductLinksAsync(string categoryUrl, BrandConfig brandConfig)
     {
-        var productLinks = new List<string>();
+        var productLinks = new HashSet<string>();
         
         try
         {
@@ -85,7 +85,7 @@ public class PlaywrightCrawlerService : IAsyncDisposable
             if (_browser == null)
             {
                 _logger.LogError("❌ Browser not initialized");
-                return productLinks;
+                return productLinks.ToList();
             }
 
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -182,10 +182,7 @@ public class PlaywrightCrawlerService : IAsyncDisposable
                 
                 foreach (var href in extractedLinks.Where(h => h != null))
                 {
-                    if (!productLinks.Contains(href!))
-                    {
-                        productLinks.Add(href!);
-                    }
+                    productLinks.Add(href!);
                 }
 
                 _logger.LogInformation("✅ Found {Count} unique product links", productLinks.Count);
@@ -221,12 +218,12 @@ public class PlaywrightCrawlerService : IAsyncDisposable
                 await page.CloseAsync();
             }
             
-            return productLinks;
+            return productLinks.ToList();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ Error extracting product links with Playwright");
-            return productLinks;
+            return productLinks.ToList();
         }
     }
 
