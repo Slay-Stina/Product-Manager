@@ -164,6 +164,7 @@ public class ProductSaverService
 
         // Replace images
         _context.ProductImages.RemoveRange(existing.Images);
+        existing.Images.Clear();
         foreach (var image in updated.Images)
         {
             image.ProductId = existing.Id;
@@ -183,9 +184,9 @@ public class ProductSaverService
     {
         try
         {
-            var existingProduct = _context.Products
+            var existingProduct = await _context.Products
                 .Include(p => p.Images)
-                .FirstOrDefault(p => p.ArticleNumber == articleNumber && p.ColorId == colorId);
+                .FirstOrDefaultAsync(p => p.ArticleNumber == articleNumber && p.ColorId == colorId);
 
             if (existingProduct != null)
             {

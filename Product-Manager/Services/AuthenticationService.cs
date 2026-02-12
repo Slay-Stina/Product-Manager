@@ -78,7 +78,7 @@ public class AuthenticationService
     /// </summary>
     private async Task<bool> PerformLoginAsync()
     {
-        var loginData = new FormUrlEncodedContent(new[]
+        using var loginData = new FormUrlEncodedContent(new[]
         {
             new KeyValuePair<string, string>(_settings.UsernameFieldName, _settings.Username),
             new KeyValuePair<string, string>(_settings.PasswordFieldName, _settings.Password)

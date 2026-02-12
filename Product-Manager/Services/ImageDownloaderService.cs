@@ -59,8 +59,9 @@ public class ImageDownloaderService
     {
         var downloadTasks = imageUrls.Select(async url => 
         {
-            var data = await DownloadImageAsync(url);
-            return (Url: url, Data: data);
+            var absoluteUrl = MakeAbsoluteUrl(url);
+            var data = await DownloadImageAsync(absoluteUrl);
+            return (Url: absoluteUrl, Data: data);
         });
 
         var results = await Task.WhenAll(downloadTasks);

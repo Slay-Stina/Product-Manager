@@ -49,9 +49,14 @@ else
         <PropertyColumn Title="Description" Property="@(p => p!.Description)" Align="Align.Start"/>
         <PropertyColumn Title="Created" Property="@(p => p!.CreatedAt)" Format="yyyy-MM-dd" Align="Align.Start"/>
         <TemplateColumn Title="Product URL" Align="Align.Start">
-            @if (!string.IsNullOrEmpty(context.ProductUrl))
+            @{
+                var isValidUrl = !string.IsNullOrEmpty(context.ProductUrl)
+                    && Uri.TryCreate(context.ProductUrl, UriKind.Absolute, out var productUri)
+                    && (productUri.Scheme == Uri.UriSchemeHttp || productUri.Scheme == Uri.UriSchemeHttps);
+            }
+            @if (isValidUrl)
             {
-                <a href="@context.ProductUrl" target="_blank" title="@context.ProductUrl" style="color: #0078d4; text-decoration: none;">
+                <a href="@context.ProductUrl" target="_blank" rel="noopener noreferrer" title="@context.ProductUrl" style="color: #0078d4; text-decoration: none;">
                     🔗 View
                 </a>
             }

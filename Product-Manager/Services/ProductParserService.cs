@@ -22,7 +22,7 @@ public class ProductParserService
     /// <summary>
     /// Parse product data from a product detail page
     /// </summary>
-    public async Task<ParsedProduct?> ParseProductPageAsync(
+    public Task<ParsedProduct?> ParseProductPageAsync(
         IHtmlDocument document, 
         string productUrl, 
         BrandConfig brandConfig)
@@ -54,16 +54,16 @@ public class ProductParserService
             if (string.IsNullOrWhiteSpace(product.ArticleNumber))
             {
                 _logger.LogWarning("⚠️ Could not extract article number from product page");
-                return null;
+                return Task.FromResult<ParsedProduct?>(null);
             }
 
             _logger.LogInformation("✅ Parsed product: {ArticleNumber}", product.ArticleNumber);
-            return product;
+            return Task.FromResult<ParsedProduct?>(product);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ Error parsing product page {Url}", productUrl);
-            return null;
+            return Task.FromResult<ParsedProduct?>(null);
         }
     }
 
@@ -151,15 +151,14 @@ public class ProductParserService
         }
         else if (imageProperty.ValueKind == JsonValueKind.Array)
         {
-            foreach (var imgElement in imageProperty.EnumerateArray())
-            {
-                var url = imgElement.ValueKind == JsonValueKind.String 
+            var urls = imageProperty.EnumerateArray()
+                .Select(imgElement => imgElement.ValueKind == JsonValueKind.String 
                     ? imgElement.GetString() 
-                    : (imgElement.TryGetProperty("url", out var urlProp) ? urlProp.GetString() : null);
+                    : (imgElement.TryGetProperty("url", out var urlProp) ? urlProp.GetString() : null))
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .OfType<string>();
 
-                if (!string.IsNullOrWhiteSpace(url))
-                    images.Add(url);
-            }
+            images.AddRange(urls);
         }
         else if (imageProperty.ValueKind == JsonValueKind.Object)
         {
@@ -265,17 +264,13 @@ public class ProductParserService
     /// </summary>
     private List<string> ExtractImagesFromHtml(IHtmlDocument document, string selector)
     {
-        var images = new List<string>();
         var imageElements = document.DocumentElement.QuerySelectorAll(selector);
-
-        foreach (var imgElement in imageElements)
-        {
-            var imageUrl = ExtractImageUrl(imgElement);
-            if (!string.IsNullOrWhiteSpace(imageUrl))
-                images.Add(imageUrl);
-        }
-
-        return images;
+        
+        return imageElements
+            .Select(imgElement => ExtractImageUrl(imgElement))
+            .Where(imageUrl => !string.IsNullOrWhiteSpace(imageUrl))
+            .OfType<string>()
+            .ToList();
     }
 
     /// <summary>
@@ -330,7 +325,40 @@ public class ProductParserService
         // Remove currency symbols and whitespace
         var cleanPrice = Regex.Replace(priceString, @"[^\d.,]", "").Trim();
         
-        if (decimal.TryParse(cleanPrice, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue))
+        if (string.IsNullOrEmpty(cleanPrice))
+            return null;
+
+        // Normalize decimal/thousands separators so that invariant parsing works for both
+        // "1,234.56" and "1.234,56" (common EU style) formats.
+        var lastComma = cleanPrice.LastIndexOf(',');
+        var lastDot = cleanPrice.LastIndexOf('.');
+        string normalizedPrice;
+
+        if (lastComma >= 0 && lastDot >= 0)
+        {
+            if (lastComma > lastDot)
+            {
+                // Comma is the decimal separator, dot is thousands separator: "1.234,56"
+                normalizedPrice = cleanPrice.Replace(".", string.Empty).Replace(',', '.');
+            }
+            else
+            {
+                // Dot is the decimal separator, comma is thousands separator: "1,234.56"
+                normalizedPrice = cleanPrice.Replace(",", string.Empty);
+            }
+        }
+        else if (lastComma >= 0)
+        {
+            // Only comma present, treat it as decimal separator: "199,99"
+            normalizedPrice = cleanPrice.Replace(',', '.');
+        }
+        else
+        {
+            // Only dot present or no separator; keep as-is.
+            normalizedPrice = cleanPrice;
+        }
+
+        if (decimal.TryParse(normalizedPrice, NumberStyles.Number, CultureInfo.InvariantCulture, out var priceValue))
             return priceValue;
 
         return null;
@@ -393,16 +421,14 @@ public class ProductParserService
                     var root = jsonDoc.RootElement;
                     
                     if (root.TryGetProperty("@type", out var typeProperty) &&
-                        typeProperty.GetString() == "Product")
+                        typeProperty.GetString() == "Product" &&
+                        root.TryGetProperty("offers", out var offers) &&
+                        offers.TryGetProperty("url", out var urlProperty))
                     {
-                        if (root.TryGetProperty("offers", out var offers) &&
-                            offers.TryGetProperty("url", out var urlProperty))
+                        var url = urlProperty.GetString();
+                        if (!string.IsNullOrWhiteSpace(url))
                         {
-                            var url = urlProperty.GetString();
-                            if (!string.IsNullOrWhiteSpace(url))
-                            {
-                                productUrls.Add(url);
-                            }
+                            productUrls.Add(url);
                         }
                     }
                 }
