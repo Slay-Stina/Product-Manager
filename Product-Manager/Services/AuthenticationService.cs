@@ -117,11 +117,12 @@ public class AuthenticationService
     /// </summary>
     public void ResetCookies()
     {
-        // Clear cookies instead of replacing the container to maintain references
+        // Clear cookies by expiring them to maintain references
         var cookieCollection = _cookieContainer.GetAllCookies();
         foreach (Cookie cookie in cookieCollection)
         {
             cookie.Expired = true;
+            cookie.Expires = DateTime.Now.AddDays(-1); // Set past date for proper expiration
         }
         _logger.LogDebug("🔄 Cookie container reset");
     }

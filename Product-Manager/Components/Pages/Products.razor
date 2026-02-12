@@ -250,8 +250,8 @@ else
 
     private static string DetectImageMimeType(byte[] data)
     {
-        if (data == null || data.Length < 3)
-            return "image/jpeg"; // Default fallback
+        if (data == null || data.Length < 12)
+            return "image/jpeg"; // Default fallback - need at least 12 bytes for WebP detection
 
         // JPEG: FF D8 FF
         if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
@@ -268,8 +268,7 @@ else
             return "image/gif";
 
         // WebP: "RIFF" .... "WEBP"
-        if (data.Length >= 12 &&
-            data[0] == (byte)'R' && data[1] == (byte)'I' && data[2] == (byte)'F' && data[3] == (byte)'F' &&
+        if (data[0] == (byte)'R' && data[1] == (byte)'I' && data[2] == (byte)'F' && data[3] == (byte)'F' &&
             data[8] == (byte)'W' && data[9] == (byte)'E' && data[10] == (byte)'B' && data[11] == (byte)'P')
             return "image/webp";
 

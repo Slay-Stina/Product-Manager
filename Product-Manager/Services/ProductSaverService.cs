@@ -146,15 +146,16 @@ public class ProductSaverService
         }
         catch (Exception ex)
         {
-            // Capture and clear the current batch to avoid retrying the same products indefinitely
-            var failedProducts = _productBatch.ToList();
+            // Clear the batch to avoid retrying the same products indefinitely
+            var batchCount = _productBatch.Count;
+            var sampleArticles = string.Join(", ", _productBatch.Take(5).Select(p => p.ArticleNumber));
             _productBatch.Clear();
 
             _logger.LogError(
                 ex,
                 "❌ Error flushing product batch. Cleared batch of {Count} products. Sample article numbers: {Articles}",
-                failedProducts.Count,
-                string.Join(", ", failedProducts.Take(5).Select(p => p.ArticleNumber))
+                batchCount,
+                sampleArticles
             );
             throw;
         }
