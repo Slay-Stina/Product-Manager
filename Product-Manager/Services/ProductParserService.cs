@@ -155,9 +155,10 @@ public class ProductParserService
                 .Select(imgElement => imgElement.ValueKind == JsonValueKind.String 
                     ? imgElement.GetString() 
                     : (imgElement.TryGetProperty("url", out var urlProp) ? urlProp.GetString() : null))
-                .Where(url => !string.IsNullOrWhiteSpace(url));
+                .Where(url => !string.IsNullOrWhiteSpace(url))
+                .OfType<string>();
 
-            images.AddRange(urls!);
+            images.AddRange(urls);
         }
         else if (imageProperty.ValueKind == JsonValueKind.Object)
         {
@@ -268,7 +269,8 @@ public class ProductParserService
         return imageElements
             .Select(imgElement => ExtractImageUrl(imgElement))
             .Where(imageUrl => !string.IsNullOrWhiteSpace(imageUrl))
-            .ToList()!;
+            .OfType<string>()
+            .ToList();
     }
 
     /// <summary>
