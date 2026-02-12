@@ -27,12 +27,6 @@ public class Product
     [MaxLength(500)]
     public string? ProductUrl { get; set; }
 
-    [Obsolete("Use Images collection instead")]
-    public string? ImageUrl { get; set; }
-
-    [Obsolete("Use Images collection instead")]
-    public byte[]? ImageData { get; set; }
-
     public ICollection<ProductImage> Images { get; set; } = new List<ProductImage>();
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

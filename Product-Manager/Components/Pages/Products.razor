@@ -89,18 +89,6 @@ else
                     }
                 </div>
             }
-            else if (context.ImageData != null)
-            {
-                <img src="@($"data:image/jpeg;base64,{Convert.ToBase64String(context.ImageData)}")" 
-                     alt="Product" 
-                     style="max-width: 80px; max-height: 80px;" />
-            }
-            else if (!string.IsNullOrEmpty(context.ImageUrl))
-            {
-                <img src="@context.ImageUrl" 
-                     alt="Product" 
-                     style="max-width: 80px; max-height: 80px;" />
-            }
             else
             {
                 <span>🚫 No image</span>

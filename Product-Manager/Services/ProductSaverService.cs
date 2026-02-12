@@ -88,12 +88,6 @@ public class ProductSaverService
 
                 product.Images.Add(productImage);
             }
-
-            // Set legacy fields for backward compatibility
-#pragma warning disable CS0618
-            product.ImageUrl = parsed.ImageUrls[0];
-            product.ImageData = product.Images.FirstOrDefault()?.ImageData;
-#pragma warning restore CS0618
         }
 
         return product;
@@ -168,12 +162,6 @@ public class ProductSaverService
         existing.ProductUrl = updated.ProductUrl;
         existing.UpdatedAt = DateTime.UtcNow;
 
-        // Update legacy fields
-#pragma warning disable CS0618
-        existing.ImageUrl = updated.ImageUrl;
-        existing.ImageData = updated.ImageData;
-#pragma warning restore CS0618
-
         // Replace images
         _context.ProductImages.RemoveRange(existing.Images);
         foreach (var image in updated.Images)
@@ -202,15 +190,31 @@ public class ProductSaverService
             if (existingProduct != null)
             {
                 existingProduct.Description = description;
-                existingProduct.ImageUrl = imageUrl;
                 existingProduct.ProductUrl = productUrl;
                 existingProduct.UpdatedAt = DateTime.UtcNow;
 
                 if (!string.IsNullOrEmpty(imageUrl))
                 {
-#pragma warning disable CS0618
-                    existingProduct.ImageData = await _imageDownloader.DownloadImageAsync(imageUrl);
-#pragma warning restore CS0618
+                    var imageData = await _imageDownloader.DownloadImageAsync(imageUrl);
+
+                    // Update or create primary image
+                    var primaryImage = existingProduct.Images.FirstOrDefault(i => i.IsPrimary);
+                    if (primaryImage != null)
+                    {
+                        primaryImage.ImageUrl = imageUrl;
+                        primaryImage.ImageData = imageData;
+                    }
+                    else
+                    {
+                        existingProduct.Images.Add(new ProductImage
+                        {
+                            ImageUrl = imageUrl,
+                            ImageData = imageData,
+                            Order = 0,
+                            IsPrimary = true,
+                            CreatedAt = DateTime.UtcNow
+                        });
+                    }
                 }
 
                 _logger.LogInformation("♻️  Updated existing product");
@@ -222,16 +226,21 @@ public class ProductSaverService
                     ArticleNumber = articleNumber,
                     ColorId = colorId,
                     Description = description,
-                    ImageUrl = imageUrl,
                     ProductUrl = productUrl,
                     CreatedAt = DateTime.UtcNow
                 };
 
                 if (!string.IsNullOrEmpty(imageUrl))
                 {
-#pragma warning disable CS0618
-                    product.ImageData = await _imageDownloader.DownloadImageAsync(imageUrl);
-#pragma warning restore CS0618
+                    var imageData = await _imageDownloader.DownloadImageAsync(imageUrl);
+                    product.Images.Add(new ProductImage
+                    {
+                        ImageUrl = imageUrl,
+                        ImageData = imageData,
+                        Order = 0,
+                        IsPrimary = true,
+                        CreatedAt = DateTime.UtcNow
+                    });
                 }
 
                 _context.Products.Add(product);

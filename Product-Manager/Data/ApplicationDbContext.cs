@@ -35,9 +35,6 @@ namespace Product_Manager.Data
                     .IsUnicode(true)
                     .HasMaxLength(500);
 
-                entity.Property(p => p.ImageUrl)
-                    .IsUnicode(true);
-
                 entity.Property(p => p.Price)
                     .HasColumnType("decimal(18,2)");
 
