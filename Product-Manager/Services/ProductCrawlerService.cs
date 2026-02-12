@@ -17,6 +17,7 @@ public partial class ProductCrawlerService
     private readonly AuthenticationService _authService;
     private readonly ProductParserService _parserService;
     private readonly ProductSaverService _saverService;
+    private readonly ImageDownloaderService _imageDownloader;
 
     // Current brand configuration with selectors
     private BrandConfig? _currentBrandConfig;
@@ -33,7 +34,8 @@ public partial class ProductCrawlerService
         PlaywrightCrawlerService playwrightService,
         AuthenticationService authService,
         ProductParserService parserService,
-        ProductSaverService saverService)
+        ProductSaverService saverService,
+        ImageDownloaderService imageDownloader)
     {
         _settings = settings;
         _logger = logger;
@@ -41,6 +43,7 @@ public partial class ProductCrawlerService
         _authService = authService;
         _parserService = parserService;
         _saverService = saverService;
+        _imageDownloader = imageDownloader;
 
         // Configure HttpClient with UTF-8 encoding support
         _httpClient = httpClientFactory.CreateClient();
@@ -561,22 +564,6 @@ public partial class ProductCrawlerService
         await _saverService.SaveProductAsync(articleNumber, colorId, description, imageUrl, productUrl);
     }
 
-    private async Task SaveProductWithDetails(string articleNumber, string? ean, string? colorId, decimal? price, string? description, List<string> imageUrls, string? productUrl = null)
-    {
-        var parsedProduct = new ParsedProduct
-        {
-            ArticleNumber = articleNumber,
-            EAN = ean,
-            ColorId = colorId,
-            Price = price,
-            Description = description,
-            ImageUrls = imageUrls,
-            ProductUrl = productUrl
-        };
-
-        await _saverService.AddProductToBatchAsync(parsedProduct);
-    }
-
     /// <summary>
     /// Extract product URLs from JSON-LD structured data
     /// </summary>
@@ -656,11 +643,9 @@ public partial class ProductCrawlerService
             {
                 for (int i = 0; i < parsedProduct.ImageUrls.Count; i++)
                 {
-                    parsedProduct.ImageUrls[i] = _saverService.GetType()
-                        .GetField("_imageDownloader", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)
-                        ?.GetValue(_saverService) is ImageDownloaderService downloader
-                        ? downloader.TransformCdnUrl(parsedProduct.ImageUrls[i], _currentBrandConfig.BrandName)
-                        : parsedProduct.ImageUrls[i];
+                    parsedProduct.ImageUrls[i] = _imageDownloader.TransformCdnUrl(
+                        parsedProduct.ImageUrls[i], 
+                        _currentBrandConfig.BrandName);
                 }
             }
 
@@ -678,6 +663,7 @@ public partial class ProductCrawlerService
             if (parsedProduct.ImageUrls.Any())
             {
                 await _saverService.AddProductToBatchAsync(parsedProduct);
+                _logger.LogInformation("✅ SUCCESS: Product added to batch");
             }
             else
             {
@@ -688,9 +674,8 @@ public partial class ProductCrawlerService
                     parsedProduct.GetFullDescription(),
                     null,
                     parsedProduct.ProductUrl);
+                _logger.LogInformation("✅ SUCCESS: Product saved immediately (no images)");
             }
-
-            _logger.LogInformation("✅ SUCCESS: Product added to batch");
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         }
         catch (Exception ex)
