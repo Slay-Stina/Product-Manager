@@ -10,13 +10,13 @@ namespace Product_Manager.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-
+            // This migration is intentionally left blank; no schema changes are required.
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-
+            // This migration is intentionally left blank; no schema changes are required.
         }
     }
 }

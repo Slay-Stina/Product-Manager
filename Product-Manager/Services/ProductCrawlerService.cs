@@ -352,9 +352,16 @@ public partial class ProductCrawlerService
             if (productLinks.Any())
             {
                 _logger.LogInformation("🔗 Found {Count} product links on this page:", productLinks.Count);
-                foreach (var link in productLinks.Take(5))
+                
+                // Add all discovered product links to the global set for accurate metrics
+                foreach (var link in productLinks)
                 {
                     _productLinks.Add(link);
+                }
+
+                // Only log a subset (up to 5) to avoid excessive output
+                foreach (var link in productLinks.Take(5))
+                {
                     _logger.LogInformation("   → {Link}", link);
                 }
                 if (productLinks.Count > 5)
@@ -415,8 +422,8 @@ public partial class ProductCrawlerService
                 _logger.LogInformation("✅ URL pattern matching enabled: '{Pattern}'", _currentBrandConfig.ProductUrlPattern);
                 _logger.LogInformation("🤖 Abot2 will automatically:");
                 _logger.LogInformation("   1️⃣  Discover all links on this page");
-                _logger.LogInformation("   2️⃣  Follow links containing '{Pattern}'", _currentBrandConfig.ProductUrlPattern);
-                _logger.LogInformation("   3️⃣  Parse product data from those pages");
+                _logger.LogInformation("   2️⃣  Crawl all discovered links (up to MaxPagesToCrawl limit)");
+                _logger.LogInformation("   3️⃣  Parse product data from pages matching '{Pattern}'", _currentBrandConfig.ProductUrlPattern);
                 _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 return; // Let Abot2 do its magic
             }
@@ -438,7 +445,7 @@ public partial class ProductCrawlerService
                         _logger.LogInformation("🌐 Manually crawling product pages...");
                         foreach (var productUrl in productUrls)
                         {
-                            CrawlProductPage(productUrl).Wait();
+                            await CrawlProductPage(productUrl);
                         }
                         return;
                     }
@@ -464,10 +471,9 @@ public partial class ProductCrawlerService
         // Use brand-specific selector or fallback to generic ones
         string productContainerSelector;
 
-        if (_currentBrandConfig != null && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductSkuSelector))
+        if (_currentBrandConfig != null && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductContainerSelector))
         {
-            // For GANT, this would be ".product-grid__item[data-pid]"
-            productContainerSelector = ".product-grid__item";
+            productContainerSelector = _currentBrandConfig.ProductContainerSelector;
             _logger.LogInformation("🎯 Using brand-specific selector: {Selector}", productContainerSelector);
         }
         else
@@ -677,7 +683,7 @@ public partial class ProductCrawlerService
                 _logger.LogInformation("   ➕ Created new product");
             }
 
-            _context.SaveChanges();
+            await _context.SaveChangesAsync();
             _productsSaved++;
         }
         catch (Exception ex)
@@ -748,21 +754,18 @@ public partial class ProductCrawlerService
                     var root = jsonDoc.RootElement;
                     
                     // Check if this is a Product schema
-                    if (root.TryGetProperty("@type", out var typeProperty))
+                    if (root.TryGetProperty("@type", out var typeProperty) &&
+                        typeProperty.GetString() == "Product")
                     {
-                        var type = typeProperty.GetString();
-                        if (type == "Product")
+                        // Extract the offer URL
+                        if (root.TryGetProperty("offers", out var offers) &&
+                            offers.TryGetProperty("url", out var urlProperty))
                         {
-                            // Extract the offer URL
-                            if (root.TryGetProperty("offers", out var offers) &&
-                                offers.TryGetProperty("url", out var urlProperty))
+                            var url = urlProperty.GetString();
+                            if (!string.IsNullOrWhiteSpace(url))
                             {
-                                var url = urlProperty.GetString();
-                                if (!string.IsNullOrWhiteSpace(url))
-                                {
-                                    productUrls.Add(url);
-                                    _logger.LogDebug("📦 Found product URL: {Url}", url);
-                                }
+                                productUrls.Add(url);
+                                _logger.LogDebug("📦 Found product URL: {Url}", url);
                             }
                         }
                     }
@@ -797,9 +800,6 @@ public partial class ProductCrawlerService
                 productUrl = new Uri(baseUri, productUrl).ToString();
             }
             
-            // Add delay to respect rate limiting
-            await Task.Delay(_settings.CrawlDelayMilliseconds);
-            
             var response = await _httpClient.GetAsync(productUrl);
             if (!response.IsSuccessStatusCode)
             {
@@ -814,7 +814,7 @@ public partial class ProductCrawlerService
             var document = parser.ParseDocument(html);
             
             // Extract product data from the product page
-            ParseProductPageData(document, productUrl);
+            await ParseProductPageData(document, productUrl);
         }
         catch (Exception ex)
         {
@@ -984,14 +984,11 @@ public partial class ProductCrawlerService
             if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPageImageSelector))
             {
                 var htmlImageUrl = ExtractImageUrl(document.DocumentElement, _currentBrandConfig.ProductPageImageSelector);
-                if (!string.IsNullOrWhiteSpace(htmlImageUrl))
+                if (!string.IsNullOrWhiteSpace(htmlImageUrl) && !htmlImageUrl.Contains("production-eu01-gant.demandware.net"))
                 {
                     // Prefer HTML image if it's a public-facing URL (doesn't contain production CDN)
-                    if (!htmlImageUrl.Contains("production-eu01-gant.demandware.net"))
-                    {
-                        imageUrl = htmlImageUrl;
-                        _logger.LogInformation("   ✓ Using public image URL from HTML (avoiding CDN 403 errors)");
-                    }
+                    imageUrl = htmlImageUrl;
+                    _logger.LogInformation("   ✓ Using public image URL from HTML (avoiding CDN 403 errors)");
                 }
             }
 
