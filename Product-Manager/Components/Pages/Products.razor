@@ -4,6 +4,7 @@
 @using Product_Manager.Models
 @implements IDisposable
 @inject ProductCrawlerService CrawlerService
+@inject ProductRepository ProductRepository
 @inject BrandConfigService BrandConfigService
 @inject CrawlerSettings CrawlerSettings
 @inject ILogger<Products> Logger
@@ -40,23 +41,58 @@ else if (!products.Any())
 }
 else
 {
-    <FluentDataGrid Id="productsgrid" Items="@products" GridTemplateColumns="1fr 1fr 1fr 2fr 100px" TGridItem="Product">
+    <FluentDataGrid Id="productsgrid" Items="@products" GridTemplateColumns="1fr 1fr 0.5fr 1fr 2fr 1fr 1.5fr 150px" TGridItem="Product">
         <PropertyColumn Title="Article Number" Property="@(p => p!.ArticleNumber)" Align="Align.Start"/>
+        <PropertyColumn Title="EAN" Property="@(p => p!.EAN)" Align="Align.Start"/>
         <PropertyColumn Title="Color ID" Property="@(p => p!.ColorId)" Align="Align.Start"/>
+        <PropertyColumn Title="Price" Property="@(p => p!.Price)" Format="C2" Align="Align.Start"/>
         <PropertyColumn Title="Description" Property="@(p => p!.Description)" Align="Align.Start"/>
         <PropertyColumn Title="Created" Property="@(p => p!.CreatedAt)" Format="yyyy-MM-dd" Align="Align.Start"/>
-        <TemplateColumn Title="Image" Align="Align.Center">
-            @if (context.ImageData != null)
-            {
-                <img src="@($"data:image/jpeg;base64,{Convert.ToBase64String(context.ImageData)}")" 
-                     alt="Product" 
-                     style="max-width: 80px; max-height: 80px;" />
+        <TemplateColumn Title="Product URL" Align="Align.Start">
+            @{
+                var isValidUrl = !string.IsNullOrEmpty(context.ProductUrl)
+                    && Uri.TryCreate(context.ProductUrl, UriKind.Absolute, out var productUri)
+                    && (productUri.Scheme == Uri.UriSchemeHttp || productUri.Scheme == Uri.UriSchemeHttps);
             }
-            else if (!string.IsNullOrEmpty(context.ImageUrl))
+            @if (isValidUrl)
             {
-                <img src="@context.ImageUrl" 
-                     alt="Product" 
-                     style="max-width: 80px; max-height: 80px;" />
+                <a href="@context.ProductUrl" target="_blank" rel="noopener noreferrer" title="@context.ProductUrl" style="color: #0078d4; text-decoration: none;">
+                    🔗 View
+                </a>
+            }
+            else
+            {
+                <span style="color: #999;">-</span>
+            }
+        </TemplateColumn>
+        <TemplateColumn Title="Images" Align="Align.Center">
+            @if (context.Images?.Any() == true)
+            {
+                <div style="display: flex; gap: 5px; flex-wrap: wrap; justify-content: center;">
+                    @foreach (var image in context.Images.OrderBy(i => i.Order).Take(3))
+                    {
+                        @if (image.ImageData != null)
+                        {
+                            <img src="@GetBase64DataUri(image)" 
+                                 alt="Product" 
+                                 style="max-width: 60px; max-height: 60px; border: 1px solid #ddd; border-radius: 4px;"
+                                 title="@(image.IsPrimary ? "Primary Image" : $"Image {image.Order + 1}")" />
+                        }
+                        else if (!string.IsNullOrEmpty(image.ImageUrl))
+                        {
+                            <img src="@image.ImageUrl" 
+                                 alt="Product" 
+                                 style="max-width: 60px; max-height: 60px; border: 1px solid #ddd; border-radius: 4px;"
+                                 title="@(image.IsPrimary ? "Primary Image" : $"Image {image.Order + 1}")" />
+                        }
+                    }
+                    @if (context.Images.Count > 3)
+                    {
+                        <span style="display: flex; align-items: center; color: #666; font-size: 0.9em;">
+                            +@(context.Images.Count - 3) more
+                        </span>
+                    }
+                </div>
             }
             else
             {
@@ -64,7 +100,7 @@ else
             }
         </TemplateColumn>
     </FluentDataGrid>
-    
+
     <p style="margin-top: 10px;">📊 Total products: @products.Count()</p>
 }
 
@@ -74,6 +110,7 @@ else
     private string? statusMessage;
     private MessageIntent messageIntent = MessageIntent.Info;
     private bool _disposed = false;
+    private readonly Dictionary<int, string> _base64Cache = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -84,10 +121,11 @@ else
     {
         try
         {
-            var productList = await CrawlerService.GetAllProductsAsync();
+            var productList = await ProductRepository.GetAllProductsAsync();
             products = productList.AsQueryable();
+            _base64Cache.Clear(); // Clear cache when reloading products
             Logger.LogInformation("✅ Loaded {Count} products", productList.Count);
-            
+
             // Safely update UI
             await InvokeAsync(StateHasChanged);
         }
@@ -96,7 +134,7 @@ else
             Logger.LogError(ex, "❌ Error loading products");
             statusMessage = $"❌ Error loading products: {ex.Message}";
             messageIntent = MessageIntent.Error;
-            
+
             // Safely update UI
             await InvokeAsync(StateHasChanged);
         }
@@ -209,6 +247,52 @@ else
     public void Dispose()
     {
         _disposed = true;
+    }
+
+    private static string DetectImageMimeType(byte[] data)
+    {
+        const int MinimumBytesForWebPDetection = 12;
+        
+        if (data == null || data.Length < MinimumBytesForWebPDetection)
+            return "image/jpeg"; // Default fallback
+
+        // JPEG: FF D8 FF
+        if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
+            return "image/jpeg";
+
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        if (data.Length >= 8 &&
+            data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4E && data[3] == 0x47 &&
+            data[4] == 0x0D && data[5] == 0x0A && data[6] == 0x1A && data[7] == 0x0A)
+            return "image/png";
+
+        // GIF: "GIF"
+        if (data[0] == (byte)'G' && data[1] == (byte)'I' && data[2] == (byte)'F')
+            return "image/gif";
+
+        // WebP: "RIFF" .... "WEBP"
+        if (data[0] == (byte)'R' && data[1] == (byte)'I' && data[2] == (byte)'F' && data[3] == (byte)'F' &&
+            data[8] == (byte)'W' && data[9] == (byte)'E' && data[10] == (byte)'B' && data[11] == (byte)'P')
+            return "image/webp";
+
+        return "image/jpeg"; // Default fallback
+    }
+
+    private string GetBase64DataUri(ProductImage image)
+    {
+        if (image.ImageData == null)
+            return string.Empty;
+
+        // Check cache first
+        if (!_base64Cache.TryGetValue(image.Id, out var dataUri))
+        {
+            var mimeType = DetectImageMimeType(image.ImageData);
+            var base64 = Convert.ToBase64String(image.ImageData);
+            dataUri = $"data:{mimeType};base64,{base64}";
+            _base64Cache[image.Id] = dataUri;
+        }
+
+        return dataUri;
     }
 }
 

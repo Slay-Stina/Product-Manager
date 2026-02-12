@@ -6,6 +6,7 @@ namespace Product_Manager.Data
     public class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options) : IdentityDbContext<ApplicationUser>(options)
     {
         public DbSet<Product> Products { get; set; }
+        public DbSet<ProductImage> ProductImages { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -18,6 +19,10 @@ namespace Product_Manager.Data
                     .IsUnicode(true)
                     .HasMaxLength(100);
 
+                entity.Property(p => p.EAN)
+                    .IsUnicode(true)
+                    .HasMaxLength(100);
+
                 entity.Property(p => p.ColorId)
                     .IsUnicode(true)
                     .HasMaxLength(50);
@@ -26,12 +31,31 @@ namespace Product_Manager.Data
                     .IsUnicode(true)
                     .HasMaxLength(2000);
 
-                entity.Property(p => p.ImageUrl)
-                    .IsUnicode(true);
+                entity.Property(p => p.ProductUrl)
+                    .IsUnicode(true)
+                    .HasMaxLength(500);
+
+                entity.Property(p => p.Price)
+                    .HasColumnType("decimal(18,2)");
 
                 // Create index for faster lookups
                 entity.HasIndex(p => new { p.ArticleNumber, p.ColorId })
                     .IsUnique();
+
+                // Configure relationship with ProductImages
+                entity.HasMany(p => p.Images)
+                    .WithOne(i => i.Product)
+                    .HasForeignKey(i => i.ProductId)
+                    .OnDelete(DeleteBehavior.Cascade);
+            });
+
+            // Configure ProductImage entity
+            modelBuilder.Entity<ProductImage>(entity =>
+            {
+                entity.Property(i => i.ImageUrl)
+                    .IsUnicode(true);
+
+                entity.HasIndex(i => new { i.ProductId, i.Order });
             });
         }
     }

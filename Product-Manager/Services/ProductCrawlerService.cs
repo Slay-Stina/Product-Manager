@@ -1,26 +1,23 @@
+using System.Net;
+using System.Text;
 using Abot2.Crawler;
 using Abot2.Poco;
 using AngleSharp.Html.Dom;
 using AngleSharp.Html.Parser;
-using Microsoft.EntityFrameworkCore;
-using Product_Manager.Data;
 using Product_Manager.Models;
-using System.Globalization;
-using System.Net;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Text.Json;
 
 namespace Product_Manager.Services;
 
 public partial class ProductCrawlerService
 {
-    private readonly ApplicationDbContext _context;
     private readonly CrawlerSettings _settings;
     private readonly ILogger<ProductCrawlerService> _logger;
     private readonly HttpClient _httpClient;
     private readonly PlaywrightCrawlerService _playwrightService;
-    private CookieContainer _cookieContainer;
+    private readonly AuthenticationService _authService;
+    private readonly ProductParserService _parserService;
+    private readonly ProductSaverService _saverService;
+    private readonly ImageDownloaderService _imageDownloader;
 
     // Current brand configuration with selectors
     private BrandConfig? _currentBrandConfig;
@@ -28,32 +25,35 @@ public partial class ProductCrawlerService
     // Crawl statistics
     private int _categoryPagesProcessed = 0;
     private int _productPagesProcessed = 0;
-    private int _productsSaved = 0;
     private readonly HashSet<string> _productLinks = new();
 
     public ProductCrawlerService(
-        ApplicationDbContext context,
         CrawlerSettings settings,
         ILogger<ProductCrawlerService> logger,
         IHttpClientFactory httpClientFactory,
-        PlaywrightCrawlerService playwrightService)
+        PlaywrightCrawlerService playwrightService,
+        AuthenticationService authService,
+        ProductParserService parserService,
+        ProductSaverService saverService,
+        ImageDownloaderService imageDownloader)
     {
-        _context = context;
         _settings = settings;
         _logger = logger;
         _playwrightService = playwrightService;
+        _authService = authService;
+        _parserService = parserService;
+        _saverService = saverService;
+        _imageDownloader = imageDownloader;
 
         // Configure HttpClient with UTF-8 encoding support
         _httpClient = httpClientFactory.CreateClient();
         _httpClient.DefaultRequestHeaders.AcceptCharset.Clear();
         _httpClient.DefaultRequestHeaders.AcceptCharset.Add(new System.Net.Http.Headers.StringWithQualityHeaderValue("utf-8"));
 
-        _cookieContainer = new CookieContainer();
-
         // Ensure UTF-8 encoding is registered
         Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
     }
-    
+
     /// <summary>
     /// Set the brand configuration to use for parsing products
     /// </summary>
@@ -65,58 +65,7 @@ public partial class ProductCrawlerService
 
     public async Task<bool> AuthenticateAsync()
     {
-        try
-        {
-            _logger.LogInformation("?? Attempting to authenticate at {LoginUrl}", _settings.LoginUrl);
-            
-            // Check if authentication is needed
-            if (string.IsNullOrWhiteSpace(_settings.LoginUrl) || 
-                _settings.LoginUrl.Contains("example.com"))
-            {
-                _logger.LogWarning("?? Login URL is not configured or uses example.com. Skipping authentication.");
-                _logger.LogInformation("?? If the site doesn't require login, this is OK. Otherwise, update CrawlerSettings in appsettings.json");
-                return true; // Allow crawling without authentication for public sites
-            }
-
-            if (string.IsNullOrWhiteSpace(_settings.Username) || string.IsNullOrWhiteSpace(_settings.Password))
-            {
-                _logger.LogWarning("?? Username or password is empty. Skipping authentication.");
-                _logger.LogInformation("?? If the site doesn't require login, this is OK. Otherwise, configure credentials.");
-                return true; // Allow crawling without authentication
-            }
-
-            var loginData = new FormUrlEncodedContent(new[]
-            {
-                new KeyValuePair<string, string>(_settings.UsernameFieldName, _settings.Username),
-                new KeyValuePair<string, string>(_settings.PasswordFieldName, _settings.Password)
-            });
-
-            var handler = new HttpClientHandler
-            {
-                CookieContainer = _cookieContainer,
-                UseCookies = true,
-                AllowAutoRedirect = true
-            };
-
-            using var client = new HttpClient(handler);
-            var response = await client.PostAsync(_settings.LoginUrl, loginData);
-
-            if (response.IsSuccessStatusCode)
-            {
-                _logger.LogInformation("? Authentication successful");
-                return true;
-            }
-
-            _logger.LogWarning("? Authentication failed with status code: {StatusCode}", response.StatusCode);
-            var responseBody = await response.Content.ReadAsStringAsync();
-            _logger.LogDebug("Response body: {ResponseBody}", responseBody.Length > 500 ? responseBody.Substring(0, 500) : responseBody);
-            return false;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "? Error during authentication");
-            return false;
-        }
+        return await _authService.AuthenticateAsync();
     }
 
     public async Task StartCrawlingAsync()
@@ -194,7 +143,7 @@ public partial class ProductCrawlerService
             for (int i = 0; i < maxProducts; i++)
             {
                 var productUrl = productLinks[i];
-                _logger.LogInformation("📦 [{Current}/{Total}] Processing: {Url}", 
+                _logger.LogInformation("📦 [{Current}/{Total}] Processing: {Url}",
                     i + 1, maxProducts, productUrl);
 
                 await CrawlProductPage(productUrl);
@@ -207,18 +156,27 @@ public partial class ProductCrawlerService
                 }
             }
 
+            // Flush any remaining products in batch
+            await _saverService.FlushBatchAsync();
+
             // Final statistics
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             _logger.LogInformation("✅ Crawl completed successfully!");
             _logger.LogInformation("📊 Statistics:");
             _logger.LogInformation("   🔗 Product links found: {Links}", productLinks.Count);
             _logger.LogInformation("   🎯 Product pages processed: {Pages}", _productPagesProcessed);
-            _logger.LogInformation("   💾 Products saved: {Saved}", _productsSaved);
+            _logger.LogInformation("   💾 Products saved: {Saved}", _saverService.ProductsSaved);
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ Error in Playwright crawling");
+            // Try to flush batch even on error
+            try
+            {
+                await _saverService.FlushBatchAsync();
+            }
+            catch { /* Ignore errors during cleanup */ }
         }
     }
 
@@ -252,6 +210,9 @@ public partial class ProductCrawlerService
 
         var crawlResult = await crawler.CrawlAsync(new Uri(_settings.TargetUrl));
 
+        // Flush any remaining products in batch
+        await _saverService.FlushBatchAsync();
+
         if (crawlResult.ErrorOccurred)
         {
             _logger.LogError("? Crawl error: {ErrorMessage}", crawlResult.ErrorException?.Message);
@@ -269,7 +230,7 @@ public partial class ProductCrawlerService
             _logger.LogInformation("   📄 Total pages crawled: {PageCount}", crawlResult.CrawlContext.CrawledCount);
             _logger.LogInformation("   📂 Category pages: {CategoryPages}", _categoryPagesProcessed);
             _logger.LogInformation("   🎯 Product pages: {ProductPages}", _productPagesProcessed);
-            _logger.LogInformation("   💾 Products saved: {ProductsSaved}", _productsSaved);
+            _logger.LogInformation("   💾 Products saved: {ProductsSaved}", _saverService.ProductsSaved);
             _logger.LogInformation("   🔗 Unique product links found: {ProductLinks}", _productLinks.Count);
         }
 
@@ -306,7 +267,7 @@ public partial class ProductCrawlerService
             }
 
             // FLOW STEP 2 & 3: Identify page type by URL pattern
-            if (_currentBrandConfig?.CrawlProductPages == true && 
+            if (_currentBrandConfig?.CrawlProductPages == true &&
                 !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductUrlPattern) &&
                 pageUrl.Contains(_currentBrandConfig.ProductUrlPattern))
             {
@@ -343,7 +304,7 @@ public partial class ProductCrawlerService
             var allLinks = document.QuerySelectorAll("a[href]");
             var productLinks = allLinks
                 .Select(a => a.GetAttribute("href"))
-                .Where(href => !string.IsNullOrWhiteSpace(href) && 
+                .Where(href => !string.IsNullOrWhiteSpace(href) &&
                               !string.IsNullOrWhiteSpace(_currentBrandConfig?.ProductUrlPattern) &&
                               href.Contains(_currentBrandConfig.ProductUrlPattern))
                 .Distinct()
@@ -352,7 +313,7 @@ public partial class ProductCrawlerService
             if (productLinks.Any())
             {
                 _logger.LogInformation("🔗 Found {Count} product links on this page:", productLinks.Count);
-                
+
                 // Add all discovered product links to the global set for accurate metrics
                 foreach (var link in productLinks)
                 {
@@ -416,7 +377,7 @@ public partial class ProductCrawlerService
             // 2. Follow those links
             // 3. Call ProcessPage for each link
             // 4. ProcessPage will detect product pages by URL pattern
-            if (_currentBrandConfig?.CrawlProductPages == true && 
+            if (_currentBrandConfig?.CrawlProductPages == true &&
                 !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductUrlPattern))
             {
                 _logger.LogInformation("✅ URL pattern matching enabled: '{Pattern}'", _currentBrandConfig.ProductUrlPattern);
@@ -506,7 +467,7 @@ public partial class ProductCrawlerService
                     var className = div.ClassName;
                     var id = div.Id;
                     var dataPid = div.GetAttribute("data-pid");
-                    _logger.LogInformation("  - Element: {TagName}, Class: '{ClassName}', ID: '{Id}', data-pid: '{DataPid}'", 
+                    _logger.LogInformation("  - Element: {TagName}, Class: '{ClassName}', ID: '{Id}', data-pid: '{DataPid}'",
                         div.TagName, className ?? "(none)", id ?? "(none)", dataPid ?? "(none)");
                 }
             }
@@ -536,7 +497,7 @@ public partial class ProductCrawlerService
                     description = ExtractText(productElement, _currentBrandConfig.ProductDescriptionSelector);
                     imageUrl = ExtractImageUrl(productElement, _currentBrandConfig.ProductImageSelector);
 
-                    _logger.LogDebug("🔍 Extracted - SKU: {SKU}, Name: {Name}, Price: {Price}", 
+                    _logger.LogDebug("🔍 Extracted - SKU: {SKU}, Name: {Name}, Price: {Price}",
                         articleNumber ?? "(none)", productName ?? "(none)", price ?? "(none)");
                 }
                 else
@@ -564,7 +525,8 @@ public partial class ProductCrawlerService
                     {
                         fullDescription += $" - {price}";
                     }
-                    if (!string.IsNullOrWhiteSpace(description))                        {
+                    if (!string.IsNullOrWhiteSpace(description))
+                    {
                         fullDescription += $" | {description}";
                     }
                 }
@@ -594,196 +556,38 @@ public partial class ProductCrawlerService
         if (imgElement == null)
             return null;
 
-        // For GANT: Check if this is inside a <picture> element with <source> tags
-        // <picture><source data-srcset="https://www.gant.se/dw/image/...">
-        var pictureParent = imgElement.ParentElement;
-        if (pictureParent?.TagName?.Equals("PICTURE", StringComparison.OrdinalIgnoreCase) == true)
-        {
-            // Look for <source> tags with data-srcset or srcset
-            var sourceElements = pictureParent.QuerySelectorAll("source");
-            foreach (var source in sourceElements)
-            {
-                var srcset = source.GetAttribute("data-srcset") ?? source.GetAttribute("srcset");
-                if (!string.IsNullOrEmpty(srcset))
-                {
-                    // Extract first URL from srcset (format: "url 1x, url 2x")
-                    var firstUrl = srcset.Split(',')[0].Trim().Split(' ')[0];
-
-                    // Prefer URLs that start with the site domain (avoid CDN 403 errors)
-                    if (firstUrl.StartsWith("https://www.gant.se/") || 
-                        firstUrl.StartsWith("http://www.gant.se/") ||
-                        !firstUrl.Contains("production-"))
-                    {
-                        return firstUrl;
-                    }
-                }
-            }
-        }
-
-        // Try multiple common image attributes on the img element itself
-        var imageUrl = imgElement.GetAttribute("src") 
-                    ?? imgElement.GetAttribute("data-src") 
-                    ?? imgElement.GetAttribute("data-original")
-                    ?? imgElement.GetAttribute("data-lazy-src");
-
-        // If we found a srcset, extract the first URL
-        if (string.IsNullOrEmpty(imageUrl))
-        {
-            var srcset = imgElement.GetAttribute("srcset") ?? imgElement.GetAttribute("data-srcset");
-            if (!string.IsNullOrEmpty(srcset))
-            {
-                // srcset format: "url 1x, url 2x" or "url 480w, url 800w"
-                var firstUrl = srcset.Split(',')[0].Trim().Split(' ')[0];
-                imageUrl = firstUrl;
-            }
-        }
-
-        return imageUrl;
+        return _parserService.ExtractImageUrl(imgElement);
     }
 
-    private async Task SaveProduct(string articleNumber, string? colorId, string? description, string? imageUrl)
+    private async Task SaveProduct(string articleNumber, string? colorId, string? description, string? imageUrl, string? productUrl = null)
     {
-        try
-        {
-            var existingProduct = _context.Products
-                .FirstOrDefault(p => p.ArticleNumber == articleNumber && p.ColorId == colorId);
-
-            if (existingProduct != null)
-            {
-                // Update existing product
-                existingProduct.Description = description;
-                existingProduct.ImageUrl = imageUrl;
-                existingProduct.UpdatedAt = DateTime.UtcNow;
-
-                if (!string.IsNullOrEmpty(imageUrl))
-                {
-                    existingProduct.ImageData = await DownloadImage(imageUrl);
-                }
-
-                _logger.LogInformation("   ♻️  Updated existing product");
-            }
-            else
-            {
-                // Create new product
-                var product = new Product
-                {
-                    ArticleNumber = articleNumber,
-                    ColorId = colorId,
-                    Description = description,
-                    ImageUrl = imageUrl,
-                    CreatedAt = DateTime.UtcNow
-                };
-
-                if (!string.IsNullOrEmpty(imageUrl))
-                {
-                    product.ImageData = await DownloadImage(imageUrl);
-                }
-
-                _context.Products.Add(product);
-                _logger.LogInformation("   ➕ Created new product");
-            }
-
-            await _context.SaveChangesAsync();
-            _productsSaved++;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error saving product {ArticleNumber}", articleNumber);
-        }
+        await _saverService.SaveProductAsync(articleNumber, colorId, description, imageUrl, productUrl);
     }
 
-    private async Task<byte[]?> DownloadImage(string imageUrl)
+    private async Task SaveProductWithDetails(string articleNumber, string? ean, string? colorId, decimal? price, string? description, List<string> imageUrls, string? productUrl = null)
     {
-        try
+        var parsedProduct = new ParsedProduct
         {
-            if (string.IsNullOrWhiteSpace(imageUrl))
-                return null;
+            ArticleNumber = articleNumber,
+            EAN = ean,
+            ColorId = colorId,
+            Price = price,
+            Description = description,
+            ImageUrls = imageUrls,
+            ProductUrl = productUrl
+        };
 
-            // Handle relative URLs
-            if (!imageUrl.StartsWith("http"))
-            {
-                var baseUri = new Uri(_settings.TargetUrl);
-                imageUrl = new Uri(baseUri, imageUrl).ToString();
-            }
-
-            var imageBytes = await _httpClient.GetByteArrayAsync(imageUrl);
-            _logger.LogInformation("Downloaded image from {ImageUrl}", imageUrl);
-            return imageBytes;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error downloading image from {ImageUrl}", imageUrl);
-            return null;
-        }
+        await _saverService.AddProductToBatchAsync(parsedProduct);
     }
 
-    public async Task<List<Product>> GetAllProductsAsync()
-    {
-        return await _context.Products.ToListAsync();
-    }
-
-    public async Task<Product?> GetProductByArticleNumberAsync(string articleNumber)
-    {
-        return await _context.Products
-            .FirstOrDefaultAsync(p => p.ArticleNumber == articleNumber);
-    }
-    
     /// <summary>
     /// Extract product URLs from JSON-LD structured data
     /// </summary>
     private List<string> ExtractProductUrlsFromJsonLd(IHtmlDocument document)
     {
-        var productUrls = new List<string>();
-        
-        try
-        {
-            // Find all JSON-LD script tags
-            var jsonLdScripts = document.QuerySelectorAll("script[type='application/ld+json']");
-            
-            _logger.LogDebug("Found {Count} JSON-LD script tags", jsonLdScripts.Length);
-            
-            foreach (var script in jsonLdScripts)
-            {
-                try
-                {
-                    var jsonContent = script.TextContent;
-                    if (string.IsNullOrWhiteSpace(jsonContent))
-                        continue;
-                    
-                    using var jsonDoc = JsonDocument.Parse(jsonContent);
-                    var root = jsonDoc.RootElement;
-                    
-                    // Check if this is a Product schema
-                    if (root.TryGetProperty("@type", out var typeProperty) &&
-                        typeProperty.GetString() == "Product")
-                    {
-                        // Extract the offer URL
-                        if (root.TryGetProperty("offers", out var offers) &&
-                            offers.TryGetProperty("url", out var urlProperty))
-                        {
-                            var url = urlProperty.GetString();
-                            if (!string.IsNullOrWhiteSpace(url))
-                            {
-                                productUrls.Add(url);
-                                _logger.LogDebug("📦 Found product URL: {Url}", url);
-                            }
-                        }
-                    }
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogWarning("⚠️ Failed to parse JSON-LD: {Message}", ex.Message);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "❌ Error extracting product URLs from JSON-LD");
-        }
-        
-        return productUrls;
+        return _parserService.ExtractProductUrlsFromJsonLd(document);
     }
-    
+
     /// <summary>
     /// Crawl an individual product page for detailed information
     /// </summary>
@@ -792,27 +596,27 @@ public partial class ProductCrawlerService
         try
         {
             _logger.LogInformation("🔗 Crawling product page: {Url}", productUrl);
-            
+
             // Make sure URL is absolute
             if (!productUrl.StartsWith("http"))
             {
                 var baseUri = new Uri(_settings.TargetUrl);
                 productUrl = new Uri(baseUri, productUrl).ToString();
             }
-            
+
             var response = await _httpClient.GetAsync(productUrl);
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogWarning("⚠️ Failed to load product page: {StatusCode}", response.StatusCode);
                 return;
             }
-            
+
             var html = await response.Content.ReadAsStringAsync();
-            
+
             // Parse HTML using AngleSharp
             var parser = new HtmlParser();
             var document = parser.ParseDocument(html);
-            
+
             // Extract product data from the product page
             await ParseProductPageData(document, productUrl);
         }
@@ -821,7 +625,7 @@ public partial class ProductCrawlerService
             _logger.LogError(ex, "❌ Error crawling product page: {Url}", productUrl);
         }
     }
-    
+
     /// <summary>
     /// FLOW STEP 4: Parse product data from an individual product detail page
     /// </summary>
@@ -840,236 +644,50 @@ public partial class ProductCrawlerService
                 return;
             }
 
-            string? articleNumber = null;
-            string? colorId = null;
-            string? productName = null;
-            string? price = null;
-            string? description = null;
-            string? imageUrl = null;
+            // Use parser service to extract product data
+            var parsedProduct = await _parserService.ParseProductPageAsync(document, productUrl, _currentBrandConfig);
 
-            // STEP 4A: Try JSON-LD first (fastest and most reliable)
-            _logger.LogInformation("🔍 Step 1: Trying JSON-LD extraction...");
-            var jsonLdScripts = document.QuerySelectorAll("script[type='application/ld+json']");
-            _logger.LogInformation("   Found {Count} JSON-LD script tags", jsonLdScripts.Length);
-
-            foreach (var script in jsonLdScripts)
+            if (parsedProduct == null || string.IsNullOrWhiteSpace(parsedProduct.ArticleNumber))
             {
-                try
-                {
-                    var jsonContent = script.TextContent;
-                    if (string.IsNullOrWhiteSpace(jsonContent))
-                        continue;
-
-                    using var jsonDoc = JsonDocument.Parse(jsonContent);
-                    var root = jsonDoc.RootElement;
-
-                    if (root.TryGetProperty("@type", out var typeProperty) && 
-                        typeProperty.GetString() == "Product")
-                    {
-                        _logger.LogInformation("✅ Found Product schema in JSON-LD");
-
-                        // Extract from JSON-LD
-                        if (root.TryGetProperty("name", out var nameProperty))
-                        {
-                            productName = nameProperty.GetString();
-                            _logger.LogInformation("   ✓ Name: {Name}", productName);
-                        }
-
-                        if (root.TryGetProperty("description", out var descProperty))
-                        {
-                            description = descProperty.GetString();
-                            _logger.LogInformation("   ✓ Description: {Length} chars", description?.Length ?? 0);
-                        }
-
-                        if (root.TryGetProperty("color", out var colorProperty))
-                        {
-                            // Handle null color (e.g., gift cards)
-                            if (colorProperty.ValueKind != JsonValueKind.Null)
-                            {
-                                colorId = colorProperty.GetString();
-                                _logger.LogInformation("   ✓ Color: {Color}", colorId);
-                            }
-                            else
-                            {
-                                _logger.LogInformation("   ⚠️ Color is null (product has no color)");
-                            }
-                        }
-
-                        // Handle image field - can be string, array, or object
-                        if (root.TryGetProperty("image", out var imageProperty))
-                        {
-                            if (imageProperty.ValueKind == JsonValueKind.String)
-                            {
-                                imageUrl = imageProperty.GetString();
-                            }
-                            else if (imageProperty.ValueKind == JsonValueKind.Array && imageProperty.GetArrayLength() > 0)
-                            {
-                                imageUrl = imageProperty[0].GetString();
-                            }
-                            else if (imageProperty.ValueKind == JsonValueKind.Object)
-                            {
-                                if (imageProperty.TryGetProperty("@id", out var idProp))
-                                    imageUrl = idProp.GetString();
-                                else if (imageProperty.TryGetProperty("url", out var urlProp))
-                                    imageUrl = urlProp.GetString();
-                            }
-                            _logger.LogInformation("   ✓ Image: {HasImage}", !string.IsNullOrEmpty(imageUrl));
-                        }
-
-                        if (root.TryGetProperty("productID", out var productIdProperty))
-                        {
-                            articleNumber = productIdProperty.GetString();
-                            _logger.LogInformation("   ✓ Product ID: {ArticleNumber}", articleNumber);
-                        }
-
-                        if (root.TryGetProperty("offers", out var offers))
-                        {
-                            if (offers.TryGetProperty("price", out var priceProperty))
-                            {
-                                // Handle both string and number price formats
-                                if (priceProperty.ValueKind == JsonValueKind.String)
-                                {
-                                    var priceString = priceProperty.GetString();
-                                    price = double.TryParse(priceString, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue)
-                                        ? priceValue.ToString("F2")
-                                        : priceString; // Keep original if parsing fails
-                                }
-                                else if (priceProperty.ValueKind == JsonValueKind.Number)
-                                {
-                                    price = priceProperty.GetDouble().ToString("F2");
-                                }
-                            }
-
-                            if (offers.TryGetProperty("priceCurrency", out var currencyProperty))
-                                price = $"{price} {currencyProperty.GetString()}";
-
-                            _logger.LogInformation("   ✓ Price: {Price}", price);
-                        }
-
-                        break; // Found product data, stop looking
-                    }
-                }
-                catch (JsonException ex)
-                {
-                    _logger.LogWarning("⚠️ Failed to parse JSON-LD: {Message}", ex.Message);
-                }
-            }
-
-            // STEP 4B: Fill missing data from HTML selectors
-            _logger.LogInformation("🔍 Step 2: Filling missing data from HTML selectors...");
-
-            if (string.IsNullOrWhiteSpace(productName) && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPageNameSelector))
-            {
-                productName = ExtractText(document.DocumentElement, _currentBrandConfig.ProductPageNameSelector);
-                if (!string.IsNullOrWhiteSpace(productName))
-                    _logger.LogInformation("   ✓ Name from HTML: {Name}", productName);
-            }
-
-            if (string.IsNullOrWhiteSpace(price) && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPagePriceSelector))
-            {
-                price = ExtractText(document.DocumentElement, _currentBrandConfig.ProductPagePriceSelector);
-                if (!string.IsNullOrWhiteSpace(price))
-                    _logger.LogInformation("   ✓ Price from HTML: {Price}", price);
-            }
-
-            if (string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPageDescriptionSelector))
-            {
-                description = ExtractText(document.DocumentElement, _currentBrandConfig.ProductPageDescriptionSelector);
-                if (!string.IsNullOrWhiteSpace(description))
-                    _logger.LogInformation("   ✓ Description from HTML: {Length} chars", description.Length);
-            }
-
-            // ALWAYS try to get image from HTML first (public URLs don't get 403)
-            // JSON-LD often contains CDN URLs that require authentication
-            if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPageImageSelector))
-            {
-                var htmlImageUrl = ExtractImageUrl(document.DocumentElement, _currentBrandConfig.ProductPageImageSelector);
-                if (!string.IsNullOrWhiteSpace(htmlImageUrl) && !htmlImageUrl.Contains("production-eu01-gant.demandware.net"))
-                {
-                    // Prefer HTML image if it's a public-facing URL (doesn't contain production CDN)
-                    imageUrl = htmlImageUrl;
-                    _logger.LogInformation("   ✓ Using public image URL from HTML (avoiding CDN 403 errors)");
-                }
-            }
-
-            // FALLBACK: Transform CDN URLs to public-facing URLs
-            // CDN: https://production-eu01-gant.demandware.net/on/demandware.static/-/Sites-gant-master/...
-            // Public: https://www.gant.se/dw/image/v2/BFLN_PRD/on/demandware.static/-/Sites-gant-master/...
-            if (!string.IsNullOrWhiteSpace(imageUrl) && imageUrl.Contains("production-eu01-gant.demandware.net"))
-            {
-                // Transform CDN URL to public URL
-                var publicImageUrl = imageUrl.Replace(
-                    "https://production-eu01-gant.demandware.net/on/demandware.static/-/Sites-gant-master/",
-                    "https://www.gant.se/dw/image/v2/BFLN_PRD/on/demandware.static/-/Sites-gant-master/"
-                );
-
-                _logger.LogInformation("   🔄 Transformed CDN URL to public URL");
-                _logger.LogInformation("      From: {OldUrl}", imageUrl.Substring(0, Math.Min(80, imageUrl.Length)) + "...");
-                _logger.LogInformation("      To:   {NewUrl}", publicImageUrl.Substring(0, Math.Min(80, publicImageUrl.Length)) + "...");
-
-                imageUrl = publicImageUrl;
-            }
-
-            if (string.IsNullOrWhiteSpace(colorId) && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPageColorSelector))
-            {
-                colorId = ExtractText(document.DocumentElement, _currentBrandConfig.ProductPageColorSelector);
-                if (!string.IsNullOrWhiteSpace(colorId))
-                    _logger.LogInformation("   ✓ Color from HTML: {Color}", colorId);
-            }
-
-            // STEP 4C: Extract article number from URL if still missing
-            if (string.IsNullOrWhiteSpace(articleNumber))
-            {
-                _logger.LogInformation("🔍 Step 3: Extracting article number from URL...");
-
-                Match? urlMatch = null;
-                urlMatch = Regex.Match(productUrl, @"/(\d{7,})\.html");
-                if (!urlMatch.Success)
-                    urlMatch = Regex.Match(productUrl, @"/(\d{7,})(?:[?#]|$)");
-                if (!urlMatch.Success)
-                    urlMatch = Regex.Match(productUrl, @"(\d{7,})");
-
-                if (urlMatch.Success)
-                {
-                    articleNumber = urlMatch.Groups[1].Value;
-                    _logger.LogInformation("   ✓ Article number from URL: {ArticleNumber}", articleNumber);
-                }
-                else if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductSkuSelector))
-                {
-                    articleNumber = ExtractText(document.DocumentElement, _currentBrandConfig.ProductSkuSelector);
-                    if (!string.IsNullOrWhiteSpace(articleNumber))
-                        _logger.LogInformation("   ✓ Article number from selector: {ArticleNumber}", articleNumber);
-                }
-            }
-
-            if (string.IsNullOrWhiteSpace(articleNumber))
-            {
-                _logger.LogError("❌ FAILED: Could not extract article number from product page");
+                _logger.LogError("❌ FAILED: Could not extract product data from page");
                 _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 return;
             }
 
-            // STEP 4D: Combine description
-            var fullDescription = description;
-            if (!string.IsNullOrWhiteSpace(productName))
+            // NEW APPROACH: Instead of using parsed image URLs that might be CDN-restricted,
+            // find and validate all image URLs on the page containing the article number
+            _logger.LogInformation("🔍 Discovering valid image URLs from page...");
+            var validImageUrls = await _imageDownloader.FindAndValidateImageUrlsAsync(
+                document, 
+                parsedProduct.ArticleNumber, 
+                _currentBrandConfig.BrandName);
+
+            // Replace parsed image URLs with validated ones
+            if (validImageUrls.Any())
             {
-                fullDescription = productName;
-                if (!string.IsNullOrWhiteSpace(price))
-                    fullDescription += $" - {price}";
-                if (!string.IsNullOrWhiteSpace(description))
-                    fullDescription += $" | {description}";
+                parsedProduct.ImageUrls = validImageUrls;
+                _logger.LogInformation("✅ Using {Count} validated image URLs", validImageUrls.Count);
+            }
+            else
+            {
+                _logger.LogWarning("⚠️ No valid image URLs found, keeping original parsed URLs ({Count})", 
+                    parsedProduct.ImageUrls.Count);
             }
 
-            // STEP 5: Save to database
-            _logger.LogInformation("💾 Step 4: Saving product to database...");
-            _logger.LogInformation("   📦 SKU: {ArticleNumber}", articleNumber);
-            _logger.LogInformation("   🏷️  Name: {Name}", productName ?? "N/A");
-            _logger.LogInformation("   💰 Price: {Price}", price ?? "N/A");
-            _logger.LogInformation("   🎨 Color: {Color}", colorId ?? "N/A");
-            _logger.LogInformation("   🖼️  Image: {HasImage}", !string.IsNullOrEmpty(imageUrl) ? "Yes" : "No");
+            // Log extracted data
+            _logger.LogInformation("💾 Adding product to batch:");
+            _logger.LogInformation("   📦 Article Number: {ArticleNumber}", parsedProduct.ArticleNumber);
+            _logger.LogInformation("   🏷️  EAN: {EAN}", parsedProduct.EAN ?? "N/A");
+            _logger.LogInformation("   📝 Name: {Name}", parsedProduct.ProductName ?? "N/A");
+            _logger.LogInformation("   💰 Price: {Price}", parsedProduct.Price?.ToString("C") ?? "N/A");
+            _logger.LogInformation("   🎨 Color: {Color}", parsedProduct.ColorId ?? "N/A");
+            _logger.LogInformation("   🖼️  Images: {Count}", parsedProduct.ImageUrls.Count);
+            _logger.LogInformation("   🔗 URL: {Url}", parsedProduct.ProductUrl);
 
-            await SaveProduct(articleNumber, colorId, fullDescription, imageUrl);
-            _logger.LogInformation("✅ SUCCESS: Product saved to database");
+            // Save using batch saver service (works for products with or without images)
+            await _saverService.AddProductToBatchAsync(parsedProduct);
+
+            _logger.LogInformation("✅ SUCCESS: Product added to batch");
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         }
         catch (Exception ex)
