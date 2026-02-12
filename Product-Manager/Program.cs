@@ -72,10 +72,17 @@ var crawlerSettings = new CrawlerSettings();
 builder.Configuration.GetSection("CrawlerSettings").Bind(crawlerSettings);
 builder.Services.AddSingleton(crawlerSettings);
 
-// Register crawler service
+// Register crawler services
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<ProductCrawlerService>();
-builder.Services.AddScoped<PlaywrightCrawlerService>();  // Add Playwright support
+builder.Services.AddScoped<PlaywrightCrawlerService>();
+
+// Register supporting services (SOLID refactoring)
+builder.Services.AddScoped<AuthenticationService>();
+builder.Services.AddScoped<ImageDownloaderService>();
+builder.Services.AddScoped<ProductParserService>();
+builder.Services.AddScoped<ProductSaverService>();
+builder.Services.AddScoped<ProductRepository>();
 
 // Register brand configuration service
 builder.Services.AddScoped<BrandConfigService>();

@@ -4,6 +4,7 @@
 @using Product_Manager.Models
 @implements IDisposable
 @inject ProductCrawlerService CrawlerService
+@inject ProductRepository ProductRepository
 @inject BrandConfigService BrandConfigService
 @inject CrawlerSettings CrawlerSettings
 @inject ILogger<Products> Logger
@@ -126,10 +127,10 @@ else
     {
         try
         {
-            var productList = await CrawlerService.GetAllProductsAsync();
+            var productList = await ProductRepository.GetAllProductsAsync();
             products = productList.AsQueryable();
             Logger.LogInformation("✅ Loaded {Count} products", productList.Count);
-            
+
             // Safely update UI
             await InvokeAsync(StateHasChanged);
         }
@@ -138,7 +139,7 @@ else
             Logger.LogError(ex, "❌ Error loading products");
             statusMessage = $"❌ Error loading products: {ex.Message}";
             messageIntent = MessageIntent.Error;
-            
+
             // Safely update UI
             await InvokeAsync(StateHasChanged);
         }
