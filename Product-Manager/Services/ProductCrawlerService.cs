@@ -564,6 +564,22 @@ public partial class ProductCrawlerService
         await _saverService.SaveProductAsync(articleNumber, colorId, description, imageUrl, productUrl);
     }
 
+    private async Task SaveProductWithDetails(string articleNumber, string? ean, string? colorId, decimal? price, string? description, List<string> imageUrls, string? productUrl = null)
+    {
+        var parsedProduct = new ParsedProduct
+        {
+            ArticleNumber = articleNumber,
+            EAN = ean,
+            ColorId = colorId,
+            Price = price,
+            Description = description,
+            ImageUrls = imageUrls,
+            ProductUrl = productUrl
+        };
+
+        await _saverService.AddProductToBatchAsync(parsedProduct);
+    }
+
     /// <summary>
     /// Extract product URLs from JSON-LD structured data
     /// </summary>
@@ -638,15 +654,24 @@ public partial class ProductCrawlerService
                 return;
             }
 
-            // Transform CDN URLs if needed (brand-specific logic)
-            if (_currentBrandConfig.BrandName.Equals("GANT", StringComparison.OrdinalIgnoreCase))
+            // NEW APPROACH: Instead of using parsed image URLs that might be CDN-restricted,
+            // find and validate all image URLs on the page containing the article number
+            _logger.LogInformation("🔍 Discovering valid image URLs from page...");
+            var validImageUrls = await _imageDownloader.FindAndValidateImageUrlsAsync(
+                document, 
+                parsedProduct.ArticleNumber, 
+                _currentBrandConfig.BrandName);
+
+            // Replace parsed image URLs with validated ones
+            if (validImageUrls.Any())
             {
-                for (int i = 0; i < parsedProduct.ImageUrls.Count; i++)
-                {
-                    parsedProduct.ImageUrls[i] = _imageDownloader.TransformCdnUrl(
-                        parsedProduct.ImageUrls[i], 
-                        _currentBrandConfig.BrandName);
-                }
+                parsedProduct.ImageUrls = validImageUrls;
+                _logger.LogInformation("✅ Using {Count} validated image URLs", validImageUrls.Count);
+            }
+            else
+            {
+                _logger.LogWarning("⚠️ No valid image URLs found, keeping original parsed URLs ({Count})", 
+                    parsedProduct.ImageUrls.Count);
             }
 
             // Log extracted data
@@ -663,7 +688,6 @@ public partial class ProductCrawlerService
             if (parsedProduct.ImageUrls.Any())
             {
                 await _saverService.AddProductToBatchAsync(parsedProduct);
-                _logger.LogInformation("✅ SUCCESS: Product added to batch");
             }
             else
             {
@@ -674,8 +698,9 @@ public partial class ProductCrawlerService
                     parsedProduct.GetFullDescription(),
                     null,
                     parsedProduct.ProductUrl);
-                _logger.LogInformation("✅ SUCCESS: Product saved immediately (no images)");
             }
+
+            _logger.LogInformation("✅ SUCCESS: Product added to batch");
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         }
         catch (Exception ex)
