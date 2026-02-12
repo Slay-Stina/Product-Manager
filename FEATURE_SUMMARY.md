@@ -24,9 +24,10 @@ Enhanced the Product Manager application to support additional product data incl
   - `Price`: Product price (decimal 18,2)
   - `ProductUrl`: Source URL where product was crawled from (max 500 chars)
   - `Images`: Collection of ProductImage entities (one-to-many relationship)
-- **Deprecated Properties** (kept for backward compatibility):
-  - `ImageUrl`: Marked as obsolete, use Images collection
-  - `ImageData`: Marked as obsolete, use Images collection
+- **Removed Properties** (breaking change):
+  - `ImageUrl`: Removed in favor of Images collection
+  - `ImageData`: Removed in favor of Images collection
+  - Migration `RemoveObsoleteImageFields` drops these columns from the database
 
 #### Database Context Updates (ApplicationDbContext.cs)
 - Added `DbSet<ProductImage>` for ProductImages table
@@ -84,7 +85,6 @@ Enhanced the Product Manager application to support additional product data incl
 - Handles saving products with EAN, Price, and multiple images
 - Updates or creates product records
 - Manages ProductImage relationships
-- Maintains backward compatibility with old ImageUrl/ImageData fields
 
 #### Updated Method: `ParseProductPageData`
 - Enhanced to extract:
@@ -112,7 +112,7 @@ Enhanced the Product Manager application to support additional product data incl
   - Shows count indicator if more than 3 images exist (e.g., "+2 more")
   - Styled with borders and rounded corners
   - Hover tooltips show image type (Primary Image or Image #)
-  - Fallback to legacy ImageUrl/ImageData for backward compatibility
+  - Supports both embedded ImageData and external ImageUrl sources
   - Responsive flex layout for multiple images
 
 #### Grid Layout Updates
@@ -135,13 +135,21 @@ Enhanced the Product Manager application to support additional product data incl
   - Added `ProductUrl` column to Products table (nvarchar(500), nullable)
   - Tracks source URL for each product
 
-## Backward Compatibility
+## Breaking Changes
 
-The implementation maintains full backward compatibility:
-1. Old `ImageUrl` and `ImageData` fields are preserved (marked as Obsolete)
-2. When new products are saved, both new (Images collection) and old fields are populated
-3. UI displays new Images collection when available, falls back to old fields
-4. Existing products without Images collection will still display correctly
+**Note:** This implementation includes breaking changes:
+1. Legacy `ImageUrl` and `ImageData` fields have been removed from the Product model
+2. Migration `RemoveObsoleteImageFields` drops these columns from the database
+3. All products now use the new Images collection exclusively
+4. Existing code that references `Product.ImageUrl` or `Product.ImageData` will need to be updated to use `Product.Images`
+
+## Migration Path
+
+For existing deployments:
+1. Back up your database before applying migrations
+2. The `RemoveObsoleteImageFields` migration will drop legacy image columns
+3. Update any custom code that references the old ImageUrl/ImageData properties
+4. Use the new Images collection API for all image operations
 
 ## Benefits
 
@@ -182,9 +190,9 @@ When the crawler runs:
 2. Verify price displays correctly with currency formatting
 3. Confirm EAN is extracted from GTIN/barcode fields (and is null if not present)
 4. Verify Article Number and EAN are displayed as separate fields
-5. Test backward compatibility with existing products
-6. Verify image thumbnails display correctly and show count indicator
-7. Test products with and without images
+5. Verify image thumbnails display correctly and show count indicator
+6. Test products with and without images
+7. Verify batch saving performance with large product sets
 
 ## Future Enhancements
 
