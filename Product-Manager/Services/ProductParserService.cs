@@ -205,7 +205,32 @@ public class ProductParserService
     /// </summary>
     private decimal? ExtractPriceFromJsonLd(JsonElement offers)
     {
-        if (!offers.TryGetProperty("price", out var priceProperty))
+        // Handle both single offer objects and arrays of offers
+        var offerElement = offers;
+
+        if (offers.ValueKind == JsonValueKind.Array)
+        {
+            // Use the first object element in the array as the offer source
+            JsonElement? firstOfferObject = null;
+            foreach (var element in offers.EnumerateArray())
+            {
+                if (element.ValueKind == JsonValueKind.Object)
+                {
+                    firstOfferObject = element;
+                    break;
+                }
+            }
+
+            if (firstOfferObject is null)
+                return null;
+
+            offerElement = firstOfferObject.Value;
+        }
+
+        if (offerElement.ValueKind != JsonValueKind.Object)
+            return null;
+
+        if (!offerElement.TryGetProperty("price", out var priceProperty))
             return null;
 
         if (priceProperty.ValueKind == JsonValueKind.String)

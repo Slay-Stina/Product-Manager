@@ -16,8 +16,10 @@ public class ProductSaverService
     private const int BATCH_SIZE = 50;
     private readonly List<Product> _productBatch = new();
     private int _productsSaved = 0;
+    private int _productsFailedToBatch = 0;
 
     public int ProductsSaved => _productsSaved;
+    public int ProductsFailedToBatch => _productsFailedToBatch;
 
     public ProductSaverService(
         ApplicationDbContext context,
@@ -47,8 +49,10 @@ public class ProductSaverService
         }
         catch (Exception ex)
         {
+            _productsFailedToBatch++;
             _logger.LogError(ex, "❌ Error adding product to batch: {ArticleNumber}", 
                 parsedProduct.ArticleNumber);
+            throw; // Re-throw to inform caller of failure
         }
     }
 
@@ -113,14 +117,15 @@ public class ProductSaverService
                 .ToListAsync();
 
             var existingDict = existingProducts
-                .ToDictionary(p => $"{p.ArticleNumber}_{p.ColorId ?? ""}");
+                .GroupBy(p => (p.ArticleNumber, p.ColorId))
+                .ToDictionary(g => g.Key, g => g.First());
 
             int updatedCount = 0;
             int insertedCount = 0;
 
             foreach (var product in _productBatch)
             {
-                var key = $"{product.ArticleNumber}_{product.ColorId ?? ""}";
+                var key = (product.ArticleNumber, product.ColorId);
 
                 if (existingDict.TryGetValue(key, out var existing))
                 {
@@ -280,5 +285,6 @@ public class ProductSaverService
     public void ResetStatistics()
     {
         _productsSaved = 0;
+        _productsFailedToBatch = 0;
     }
 }
