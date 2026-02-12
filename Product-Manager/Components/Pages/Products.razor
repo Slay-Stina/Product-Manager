@@ -73,8 +73,7 @@ else
                     {
                         @if (image.ImageData != null)
                         {
-                            var mimeType = DetectImageMimeType(image.ImageData);
-                            <img src="@($"data:{mimeType};base64,{Convert.ToBase64String(image.ImageData)}")" 
+                            <img src="@GetBase64DataUri(image)" 
                                  alt="Product" 
                                  style="max-width: 60px; max-height: 60px; border: 1px solid #ddd; border-radius: 4px;"
                                  title="@(image.IsPrimary ? "Primary Image" : $"Image {image.Order + 1}")" />
@@ -111,6 +110,7 @@ else
     private string? statusMessage;
     private MessageIntent messageIntent = MessageIntent.Info;
     private bool _disposed = false;
+    private readonly Dictionary<int, string> _base64Cache = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -123,6 +123,7 @@ else
         {
             var productList = await ProductRepository.GetAllProductsAsync();
             products = productList.AsQueryable();
+            _base64Cache.Clear(); // Clear cache when reloading products
             Logger.LogInformation("✅ Loaded {Count} products", productList.Count);
 
             // Safely update UI
@@ -275,6 +276,23 @@ else
             return "image/webp";
 
         return "image/jpeg"; // Default fallback
+    }
+
+    private string GetBase64DataUri(ProductImage image)
+    {
+        if (image.ImageData == null)
+            return string.Empty;
+
+        // Check cache first
+        if (!_base64Cache.TryGetValue(image.Id, out var dataUri))
+        {
+            var mimeType = DetectImageMimeType(image.ImageData);
+            var base64 = Convert.ToBase64String(image.ImageData);
+            dataUri = $"data:{mimeType};base64,{base64}";
+            _base64Cache[image.Id] = dataUri;
+        }
+
+        return dataUri;
     }
 }
 

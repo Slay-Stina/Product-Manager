@@ -15,9 +15,27 @@ public class ProductSaverService
 
     private const int BATCH_SIZE = 50;
     private readonly List<Product> _productBatch = new();
+    private readonly object _batchLock = new();
     private int _productsSaved = 0;
+    private int _productsFailedToBatch = 0;
 
-    public int ProductsSaved => _productsSaved;
+    public int ProductsSaved
+    {
+        get
+        {
+            lock (_batchLock)
+                return _productsSaved;
+        }
+    }
+    
+    public int ProductsFailedToBatch
+    {
+        get
+        {
+            lock (_batchLock)
+                return _productsFailedToBatch;
+        }
+    }
 
     public ProductSaverService(
         ApplicationDbContext context,
@@ -37,18 +55,28 @@ public class ProductSaverService
         try
         {
             var product = await CreateProductFromParsedDataAsync(parsedProduct);
-            _productBatch.Add(product);
+            
+            bool shouldFlush = false;
+            lock (_batchLock)
+            {
+                _productBatch.Add(product);
+                shouldFlush = _productBatch.Count >= BATCH_SIZE;
+            }
 
-            // Auto-flush when batch size reached
-            if (_productBatch.Count >= BATCH_SIZE)
+            // Auto-flush when batch size reached (outside lock to avoid deadlock)
+            if (shouldFlush)
             {
                 await FlushBatchAsync();
             }
         }
         catch (Exception ex)
         {
+            lock (_batchLock)
+                _productsFailedToBatch++;
+            
             _logger.LogError(ex, "❌ Error adding product to batch: {ArticleNumber}", 
                 parsedProduct.ArticleNumber);
+            throw; // Re-throw to inform caller of failure
         }
     }
 
@@ -98,29 +126,36 @@ public class ProductSaverService
     /// </summary>
     public async Task FlushBatchAsync()
     {
-        if (!_productBatch.Any())
-            return;
+        List<Product> batchCopy;
+        lock (_batchLock)
+        {
+            if (!_productBatch.Any())
+                return;
+
+            batchCopy = new List<Product>(_productBatch);
+        }
 
         try
         {
-            _logger.LogInformation("💾 Flushing batch of {Count} products to database...", _productBatch.Count);
+            _logger.LogInformation("💾 Flushing batch of {Count} products to database...", batchCopy.Count);
 
             // Get existing products to determine which need updates vs inserts
-            var articleNumbers = _productBatch.Select(p => p.ArticleNumber).Distinct().ToList();
+            var articleNumbers = batchCopy.Select(p => p.ArticleNumber).Distinct().ToList();
             var existingProducts = await _context.Products
                 .Include(p => p.Images)
                 .Where(p => articleNumbers.Contains(p.ArticleNumber))
                 .ToListAsync();
 
             var existingDict = existingProducts
-                .ToDictionary(p => $"{p.ArticleNumber}_{p.ColorId ?? ""}");
+                .GroupBy(p => (p.ArticleNumber, p.ColorId))
+                .ToDictionary(g => g.Key, g => g.First());
 
             int updatedCount = 0;
             int insertedCount = 0;
 
-            foreach (var product in _productBatch)
+            foreach (var product in batchCopy)
             {
-                var key = $"{product.ArticleNumber}_{product.ColorId ?? ""}";
+                var key = (product.ArticleNumber, product.ColorId);
 
                 if (existingDict.TryGetValue(key, out var existing))
                 {
@@ -137,24 +172,28 @@ public class ProductSaverService
             }
 
             await _context.SaveChangesAsync();
-            _productsSaved += _productBatch.Count;
+            
+            lock (_batchLock)
+            {
+                _productsSaved += batchCopy.Count;
+                _productBatch.Clear();
+            }
 
             _logger.LogInformation("✅ Batch saved: {Inserted} new, {Updated} updated", 
                 insertedCount, updatedCount);
-
-            _productBatch.Clear();
         }
         catch (Exception ex)
         {
             // Clear the batch to avoid retrying the same products indefinitely
-            var batchCount = _productBatch.Count;
-            var sampleArticles = string.Join(", ", _productBatch.Take(5).Select(p => p.ArticleNumber));
-            _productBatch.Clear();
+            var sampleArticles = string.Join(", ", batchCopy.Take(5).Select(p => p.ArticleNumber));
+            
+            lock (_batchLock)
+                _productBatch.Clear();
 
             _logger.LogError(
                 ex,
                 "❌ Error flushing product batch. Cleared batch of {Count} products. Sample article numbers: {Articles}",
-                batchCount,
+                batchCopy.Count,
                 sampleArticles
             );
             throw;
@@ -279,6 +318,10 @@ public class ProductSaverService
     /// </summary>
     public void ResetStatistics()
     {
-        _productsSaved = 0;
+        lock (_batchLock)
+        {
+            _productsSaved = 0;
+            _productsFailedToBatch = 0;
+        }
     }
 }

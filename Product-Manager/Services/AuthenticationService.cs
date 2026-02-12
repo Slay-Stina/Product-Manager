@@ -11,7 +11,7 @@ public class AuthenticationService
     private readonly ILogger<AuthenticationService> _logger;
     private CookieContainer _cookieContainer;
 
-    public CookieContainer CookieContainer => _cookieContainer;
+    public CookieContainer GetCookieContainer() => _cookieContainer;
 
     public AuthenticationService(
         CrawlerSettings settings,

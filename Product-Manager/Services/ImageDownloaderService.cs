@@ -12,6 +12,8 @@ public class ImageDownloaderService
     private readonly HttpClient _httpClient;
     private readonly ILogger<ImageDownloaderService> _logger;
     private readonly string _baseUrl;
+    private const int MAX_CONCURRENT_VALIDATIONS = 10;
+    private readonly SemaphoreSlim _validationSemaphore = new(MAX_CONCURRENT_VALIDATIONS);
 
     public ImageDownloaderService(
         IHttpClientFactory httpClientFactory,
@@ -60,16 +62,11 @@ public class ImageDownloaderService
                 {
                     var urls = value.Split(',')
                         .Select(part => part.Trim().Split(' ')[0])
-                        .Where(url => !string.IsNullOrWhiteSpace(url));
+                        .Where(url => !string.IsNullOrWhiteSpace(url))
+                        .Where(url => MatchesAnyPattern(url, searchPatterns) && 
+                                      url.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase));
 
-                    foreach (var url in urls)
-                    {
-                        if (MatchesAnyPattern(url, searchPatterns) && 
-                            url.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase))
-                        {
-                            potentialUrls.Add(url);
-                        }
-                    }
+                    potentialUrls.UnionWith(urls);
                 }
                 else if (MatchesAnyPattern(value, searchPatterns) && 
                          value.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase))
@@ -139,11 +136,12 @@ public class ImageDownloaderService
             _logger.LogInformation("   ... and {More} more", potentialUrls.Count - 3);
         }
 
-        // 3. Try downloading each URL and keep only successful ones
+        // 3. Try downloading each URL and keep only successful ones (with concurrency limit)
         _logger.LogInformation("🔄 Validating URLs by attempting downloads...");
 
         var validationTasks = potentialUrls.Select(async url =>
         {
+            await _validationSemaphore.WaitAsync();
             try
             {
                 var absoluteUrl = MakeAbsoluteUrl(url);
@@ -171,6 +169,10 @@ public class ImageDownloaderService
             {
                 _logger.LogDebug("❌ Error validating URL {Url}: {Message}", url, ex.Message);
                 return null;
+            }
+            finally
+            {
+                _validationSemaphore.Release();
             }
         }).ToList();
 

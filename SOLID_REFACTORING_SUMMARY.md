@@ -199,11 +199,15 @@ The following methods were moved to `ProductRepository`:
 - `GetAllProductsAsync()` - Use `ProductRepository` instead
 - `GetProductByArticleNumberAsync()` - Use `ProductRepository` instead
 
-### ✅ Backward Compatibility
+### ✅ Code Compatibility
 - All existing crawling functionality preserved
 - Statistics tracking still works (`_saverService.ProductsSaved`)
 - Logging behavior unchanged
-- Database schema unchanged
+
+### ⚠️ Database Schema Changes
+- Database schema was modified by other features (EAN, Price, ProductURL, Images)
+- See FEATURE_SUMMARY.md for details on schema migrations
+- The SOLID refactoring itself did not change the schema
 
 ---
 
