@@ -15,12 +15,28 @@ public class BrandConfig
     
     // Brand-specific selectors
     public string ProductContainerSelector { get; set; } = string.Empty;
+    public string ProductLinkSelector { get; set; } = string.Empty;  // Selector for the link to product detail page
     public string ProductNameSelector { get; set; } = string.Empty;
     public string ProductPriceSelector { get; set; } = string.Empty;
     public string ProductImageSelector { get; set; } = string.Empty;
     public string ProductDescriptionSelector { get; set; } = string.Empty;
     public string ProductSkuSelector { get; set; } = string.Empty;
-    
+
+    // JSON-LD and product page crawling
+    public bool UseJsonLdExtraction { get; set; } = false;
+    public bool CrawlProductPages { get; set; } = false;
+    public string ProductUrlPattern { get; set; } = string.Empty;  // URL pattern to identify product pages (e.g., "/p/" for GANT)
+    public string ProductPageNameSelector { get; set; } = string.Empty;
+    public string ProductPagePriceSelector { get; set; } = string.Empty;
+    public string ProductPageDescriptionSelector { get; set; } = string.Empty;
+    public string ProductPageImageSelector { get; set; } = string.Empty;
+    public string ProductPageColorSelector { get; set; } = string.Empty;
+
+    // Playwright JavaScript rendering
+    public bool UseJavaScriptRendering { get; set; } = false;  // Enable Playwright for JavaScript-rendered pages
+    public int JavaScriptWaitTimeoutMs { get; set; } = 15000;  // How long to wait for elements (ms)
+    public int PostRenderDelayMs { get; set; } = 2000;  // Extra time after elements appear (ms)
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastUsed { get; set; }
 }
