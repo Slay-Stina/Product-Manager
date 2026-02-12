@@ -62,16 +62,11 @@ public class ImageDownloaderService
                 {
                     var urls = value.Split(',')
                         .Select(part => part.Trim().Split(' ')[0])
-                        .Where(url => !string.IsNullOrWhiteSpace(url));
+                        .Where(url => !string.IsNullOrWhiteSpace(url))
+                        .Where(url => MatchesAnyPattern(url, searchPatterns) && 
+                                      url.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase));
 
-                    foreach (var url in urls)
-                    {
-                        if (MatchesAnyPattern(url, searchPatterns) && 
-                            url.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase))
-                        {
-                            potentialUrls.Add(url);
-                        }
-                    }
+                    potentialUrls.UnionWith(urls);
                 }
                 else if (MatchesAnyPattern(value, searchPatterns) && 
                          value.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase))
