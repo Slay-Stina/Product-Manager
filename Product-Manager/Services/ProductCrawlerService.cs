@@ -31,6 +31,11 @@ public partial class ProductCrawlerService
     private int _productsSaved = 0;
     private readonly HashSet<string> _productLinks = new();
 
+    // Batch saving for performance
+    private const int BATCH_SIZE = 50;
+    private readonly List<Product> _productBatch = new();
+    private readonly List<ProductImage> _imageBatch = new();
+
     public ProductCrawlerService(
         ApplicationDbContext context,
         CrawlerSettings settings,
@@ -207,6 +212,9 @@ public partial class ProductCrawlerService
                 }
             }
 
+            // Flush any remaining products in batch
+            await FlushBatchAsync();
+
             // Final statistics
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             _logger.LogInformation("✅ Crawl completed successfully!");
@@ -219,6 +227,12 @@ public partial class ProductCrawlerService
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ Error in Playwright crawling");
+            // Try to flush batch even on error
+            try
+            {
+                await FlushBatchAsync();
+            }
+            catch { /* Ignore errors during cleanup */ }
         }
     }
 
@@ -251,6 +265,9 @@ public partial class ProductCrawlerService
         crawler.PageCrawlCompleted += ProcessPage;
 
         var crawlResult = await crawler.CrawlAsync(new Uri(_settings.TargetUrl));
+
+        // Flush any remaining products in batch
+        await FlushBatchAsync();
 
         if (crawlResult.ErrorOccurred)
         {
@@ -641,11 +658,12 @@ public partial class ProductCrawlerService
         return imageUrl;
     }
 
-    private async Task SaveProduct(string articleNumber, string? colorId, string? description, string? imageUrl)
+    private async Task SaveProduct(string articleNumber, string? colorId, string? description, string? imageUrl, string? productUrl = null)
     {
         try
         {
             var existingProduct = _context.Products
+                .Include(p => p.Images)
                 .FirstOrDefault(p => p.ArticleNumber == articleNumber && p.ColorId == colorId);
 
             if (existingProduct != null)
@@ -653,11 +671,15 @@ public partial class ProductCrawlerService
                 // Update existing product
                 existingProduct.Description = description;
                 existingProduct.ImageUrl = imageUrl;
+                existingProduct.ProductUrl = productUrl;
                 existingProduct.UpdatedAt = DateTime.UtcNow;
 
+                // Maintain backward compatibility - update old ImageData
                 if (!string.IsNullOrEmpty(imageUrl))
                 {
+#pragma warning disable CS0618
                     existingProduct.ImageData = await DownloadImage(imageUrl);
+#pragma warning restore CS0618
                 }
 
                 _logger.LogInformation("   ♻️  Updated existing product");
@@ -671,16 +693,118 @@ public partial class ProductCrawlerService
                     ColorId = colorId,
                     Description = description,
                     ImageUrl = imageUrl,
+                    ProductUrl = productUrl,
                     CreatedAt = DateTime.UtcNow
                 };
 
+                // Maintain backward compatibility - set old ImageData
                 if (!string.IsNullOrEmpty(imageUrl))
                 {
+#pragma warning disable CS0618
                     product.ImageData = await DownloadImage(imageUrl);
+#pragma warning restore CS0618
                 }
 
                 _context.Products.Add(product);
                 _logger.LogInformation("   ➕ Created new product");
+            }
+
+            await _context.SaveChangesAsync();
+            _productsSaved++;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving product {ArticleNumber}", articleNumber);
+        }
+    }
+
+    private async Task SaveProductWithDetails(string articleNumber, string? ean, string? colorId, decimal? price, string? description, List<string> imageUrls, string? productUrl = null)
+    {
+        try
+        {
+            var existingProduct = _context.Products
+                .Include(p => p.Images)
+                .FirstOrDefault(p => p.ArticleNumber == articleNumber && p.ColorId == colorId);
+
+            if (existingProduct != null)
+            {
+                // Update existing product
+                existingProduct.EAN = ean;
+                existingProduct.Price = price;
+                existingProduct.Description = description;
+                existingProduct.ProductUrl = productUrl;
+                existingProduct.UpdatedAt = DateTime.UtcNow;
+
+                // Update images - remove old ones and add new ones
+                _context.ProductImages.RemoveRange(existingProduct.Images);
+
+                for (int i = 0; i < imageUrls.Count; i++)
+                {
+                    var imageUrl = imageUrls[i];
+                    var imageData = await DownloadImage(imageUrl);
+
+                    existingProduct.Images.Add(new ProductImage
+                    {
+                        ImageUrl = imageUrl,
+                        ImageData = imageData,
+                        Order = i,
+                        IsPrimary = i == 0,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+
+                // Maintain backward compatibility
+                if (imageUrls.Any())
+                {
+#pragma warning disable CS0618
+                    existingProduct.ImageUrl = imageUrls[0];
+                    existingProduct.ImageData = existingProduct.Images.FirstOrDefault()?.ImageData;
+#pragma warning restore CS0618
+                }
+
+                _logger.LogInformation("   ♻️  Updated existing product with {ImageCount} images", imageUrls.Count);
+            }
+            else
+            {
+                // Create new product
+                var product = new Product
+                {
+                    ArticleNumber = articleNumber,
+                    EAN = ean,
+                    ColorId = colorId,
+                    Price = price,
+                    Description = description,
+                    ProductUrl = productUrl,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                // Add images
+                for (int i = 0; i < imageUrls.Count; i++)
+                {
+                    var imageUrl = imageUrls[i];
+                    var imageData = await DownloadImage(imageUrl);
+
+                    product.Images.Add(new ProductImage
+                    {
+                        ImageUrl = imageUrl,
+                        ImageData = imageData,
+                        Order = i,
+                        IsPrimary = i == 0,
+                        CreatedAt = DateTime.UtcNow
+                    });
+                }
+
+                // Maintain backward compatibility
+                if (imageUrls.Any())
+                {
+#pragma warning disable CS0618
+                    product.ImageUrl = imageUrls[0];
+                    product.ImageData = product.Images.FirstOrDefault()?.ImageData;
+#pragma warning restore CS0618
+                }
+
+                _context.Products.Add(product);
+                _logger.LogInformation("   ➕ Created new product with {ImageCount} images", imageUrls.Count);
             }
 
             await _context.SaveChangesAsync();
@@ -719,12 +843,15 @@ public partial class ProductCrawlerService
 
     public async Task<List<Product>> GetAllProductsAsync()
     {
-        return await _context.Products.ToListAsync();
+        return await _context.Products
+            .Include(p => p.Images)
+            .ToListAsync();
     }
 
     public async Task<Product?> GetProductByArticleNumberAsync(string articleNumber)
     {
         return await _context.Products
+            .Include(p => p.Images)
             .FirstOrDefaultAsync(p => p.ArticleNumber == articleNumber);
     }
     
@@ -840,12 +967,25 @@ public partial class ProductCrawlerService
                 return;
             }
 
+            // Extract information from URL
+            var urlInfo = ExtractInfoFromUrl(productUrl);
+            if (urlInfo.Any())
+            {
+                _logger.LogInformation("📍 URL Analysis:");
+                foreach (var kv in urlInfo)
+                {
+                    _logger.LogInformation("   • {Key}: {Value}", kv.Key, kv.Value);
+                }
+            }
+
             string? articleNumber = null;
+            string? ean = null;
             string? colorId = null;
             string? productName = null;
-            string? price = null;
+            string? priceString = null;
+            decimal? price = null;
             string? description = null;
-            string? imageUrl = null;
+            var imageUrls = new List<string>();
 
             // STEP 4A: Try JSON-LD first (fastest and most reliable)
             _logger.LogInformation("🔍 Step 1: Trying JSON-LD extraction...");
@@ -900,20 +1040,63 @@ public partial class ProductCrawlerService
                         {
                             if (imageProperty.ValueKind == JsonValueKind.String)
                             {
-                                imageUrl = imageProperty.GetString();
+                                var imageUrl = imageProperty.GetString();
+                                if (!string.IsNullOrWhiteSpace(imageUrl))
+                                    imageUrls.Add(imageUrl);
                             }
-                            else if (imageProperty.ValueKind == JsonValueKind.Array && imageProperty.GetArrayLength() > 0)
+                            else if (imageProperty.ValueKind == JsonValueKind.Array)
                             {
-                                imageUrl = imageProperty[0].GetString();
+                                foreach (var imgElement in imageProperty.EnumerateArray())
+                                {
+                                    var imageUrl = imgElement.ValueKind == JsonValueKind.String 
+                                        ? imgElement.GetString() 
+                                        : (imgElement.TryGetProperty("url", out var urlProp) ? urlProp.GetString() : null);
+
+                                    if (!string.IsNullOrWhiteSpace(imageUrl))
+                                        imageUrls.Add(imageUrl);
+                                }
                             }
                             else if (imageProperty.ValueKind == JsonValueKind.Object)
                             {
                                 if (imageProperty.TryGetProperty("@id", out var idProp))
-                                    imageUrl = idProp.GetString();
+                                {
+                                    var imageUrl = idProp.GetString();
+                                    if (!string.IsNullOrWhiteSpace(imageUrl))
+                                        imageUrls.Add(imageUrl);
+                                }
                                 else if (imageProperty.TryGetProperty("url", out var urlProp))
-                                    imageUrl = urlProp.GetString();
+                                {
+                                    var imageUrl = urlProp.GetString();
+                                    if (!string.IsNullOrWhiteSpace(imageUrl))
+                                        imageUrls.Add(imageUrl);
+                                }
                             }
-                            _logger.LogInformation("   ✓ Image: {HasImage}", !string.IsNullOrEmpty(imageUrl));
+                            _logger.LogInformation("   ✓ Images: {Count}", imageUrls.Count);
+                        }
+
+                        // Extract EAN (European Article Number)
+                        // Check for standard GTIN properties (gtin13 is EAN-13, gtin is generic)
+                        if (root.TryGetProperty("gtin13", out var gtin13Property))
+                        {
+                            ean = gtin13Property.GetString();
+                            _logger.LogInformation("   ✓ EAN (gtin13): {EAN}", ean);
+                        }
+                        else if (root.TryGetProperty("gtin", out var gtinProperty))
+                        {
+                            ean = gtinProperty.GetString();
+                            _logger.LogInformation("   ✓ EAN (gtin): {EAN}", ean);
+                        }
+                        else if (root.TryGetProperty("sku", out var skuProperty))
+                        {
+                            // Some sites use 'sku' for EAN
+                            ean = skuProperty.GetString();
+                            _logger.LogInformation("   ✓ EAN (from sku field): {EAN}", ean);
+                        }
+                        else if (root.TryGetProperty("pid", out var pidProperty))
+                        {
+                            // Some sites use 'pid' for product identifier/EAN
+                            ean = pidProperty.GetString();
+                            _logger.LogInformation("   ✓ EAN (from pid field): {EAN}", ean);
                         }
 
                         if (root.TryGetProperty("productID", out var productIdProperty))
@@ -929,21 +1112,29 @@ public partial class ProductCrawlerService
                                 // Handle both string and number price formats
                                 if (priceProperty.ValueKind == JsonValueKind.String)
                                 {
-                                    var priceString = priceProperty.GetString();
-                                    price = double.TryParse(priceString, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue)
-                                        ? priceValue.ToString("F2")
-                                        : priceString; // Keep original if parsing fails
+                                    var priceStr = priceProperty.GetString();
+                                    if (decimal.TryParse(priceStr, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue))
+                                    {
+                                        price = priceValue;
+                                        priceString = priceValue.ToString("F2");
+                                    }
+                                    else
+                                    {
+                                        priceString = priceStr;
+                                    }
                                 }
                                 else if (priceProperty.ValueKind == JsonValueKind.Number)
                                 {
-                                    price = priceProperty.GetDouble().ToString("F2");
+                                    var priceValue = priceProperty.GetDecimal();
+                                    price = priceValue;
+                                    priceString = priceValue.ToString("F2");
                                 }
                             }
 
                             if (offers.TryGetProperty("priceCurrency", out var currencyProperty))
-                                price = $"{price} {currencyProperty.GetString()}";
+                                priceString = $"{priceString} {currencyProperty.GetString()}";
 
-                            _logger.LogInformation("   ✓ Price: {Price}", price);
+                            _logger.LogInformation("   ✓ Price: {Price}", priceString);
                         }
 
                         break; // Found product data, stop looking
@@ -965,11 +1156,19 @@ public partial class ProductCrawlerService
                     _logger.LogInformation("   ✓ Name from HTML: {Name}", productName);
             }
 
-            if (string.IsNullOrWhiteSpace(price) && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPagePriceSelector))
+            if (!price.HasValue && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPagePriceSelector))
             {
-                price = ExtractText(document.DocumentElement, _currentBrandConfig.ProductPagePriceSelector);
-                if (!string.IsNullOrWhiteSpace(price))
-                    _logger.LogInformation("   ✓ Price from HTML: {Price}", price);
+                priceString = ExtractText(document.DocumentElement, _currentBrandConfig.ProductPagePriceSelector);
+                if (!string.IsNullOrWhiteSpace(priceString))
+                {
+                    // Try to parse price from HTML (remove currency symbols, etc.)
+                    var cleanPrice = Regex.Replace(priceString, @"[^\d.,]", "").Trim();
+                    if (decimal.TryParse(cleanPrice, NumberStyles.Any, CultureInfo.InvariantCulture, out var priceValue))
+                    {
+                        price = priceValue;
+                    }
+                    _logger.LogInformation("   ✓ Price from HTML: {Price}", priceString);
+                }
             }
 
             if (string.IsNullOrWhiteSpace(description) && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPageDescriptionSelector))
@@ -979,35 +1178,33 @@ public partial class ProductCrawlerService
                     _logger.LogInformation("   ✓ Description from HTML: {Length} chars", description.Length);
             }
 
-            // ALWAYS try to get image from HTML first (public URLs don't get 403)
-            // JSON-LD often contains CDN URLs that require authentication
-            if (!string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPageImageSelector))
+            // Extract multiple images from HTML if not found in JSON-LD
+            if (!imageUrls.Any() && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPageImageSelector))
             {
-                var htmlImageUrl = ExtractImageUrl(document.DocumentElement, _currentBrandConfig.ProductPageImageSelector);
-                if (!string.IsNullOrWhiteSpace(htmlImageUrl) && !htmlImageUrl.Contains("production-eu01-gant.demandware.net"))
+                var imageElements = document.DocumentElement.QuerySelectorAll(_currentBrandConfig.ProductPageImageSelector);
+                foreach (var imgElement in imageElements)
                 {
-                    // Prefer HTML image if it's a public-facing URL (doesn't contain production CDN)
-                    imageUrl = htmlImageUrl;
-                    _logger.LogInformation("   ✓ Using public image URL from HTML (avoiding CDN 403 errors)");
+                    var imageUrl = ExtractImageUrl(imgElement, "img") ?? ExtractImageUrl(imgElement, "source");
+                    if (!string.IsNullOrWhiteSpace(imageUrl) && !imageUrl.Contains("production-eu01-gant.demandware.net"))
+                    {
+                        imageUrls.Add(imageUrl);
+                    }
                 }
+                if (imageUrls.Any())
+                    _logger.LogInformation("   ✓ Using {Count} public image URLs from HTML (avoiding CDN 403 errors)", imageUrls.Count);
             }
 
             // FALLBACK: Transform CDN URLs to public-facing URLs
-            // CDN: https://production-eu01-gant.demandware.net/on/demandware.static/-/Sites-gant-master/...
-            // Public: https://www.gant.se/dw/image/v2/BFLN_PRD/on/demandware.static/-/Sites-gant-master/...
-            if (!string.IsNullOrWhiteSpace(imageUrl) && imageUrl.Contains("production-eu01-gant.demandware.net"))
+            for (int i = 0; i < imageUrls.Count; i++)
             {
-                // Transform CDN URL to public URL
-                var publicImageUrl = imageUrl.Replace(
-                    "https://production-eu01-gant.demandware.net/on/demandware.static/-/Sites-gant-master/",
-                    "https://www.gant.se/dw/image/v2/BFLN_PRD/on/demandware.static/-/Sites-gant-master/"
-                );
-
-                _logger.LogInformation("   🔄 Transformed CDN URL to public URL");
-                _logger.LogInformation("      From: {OldUrl}", imageUrl.Substring(0, Math.Min(80, imageUrl.Length)) + "...");
-                _logger.LogInformation("      To:   {NewUrl}", publicImageUrl.Substring(0, Math.Min(80, publicImageUrl.Length)) + "...");
-
-                imageUrl = publicImageUrl;
+                if (imageUrls[i].Contains("production-eu01-gant.demandware.net"))
+                {
+                    imageUrls[i] = imageUrls[i].Replace(
+                        "https://production-eu01-gant.demandware.net/on/demandware.static/-/Sites-gant-master/",
+                        "https://www.gant.se/dw/image/v2/BFLN_PRD/on/demandware.static/-/Sites-gant-master/"
+                    );
+                    _logger.LogInformation("   🔄 Transformed CDN URL to public URL for image {Index}", i + 1);
+                }
             }
 
             if (string.IsNullOrWhiteSpace(colorId) && !string.IsNullOrWhiteSpace(_currentBrandConfig.ProductPageColorSelector))
@@ -1054,28 +1251,265 @@ public partial class ProductCrawlerService
             if (!string.IsNullOrWhiteSpace(productName))
             {
                 fullDescription = productName;
-                if (!string.IsNullOrWhiteSpace(price))
-                    fullDescription += $" - {price}";
+                if (!string.IsNullOrWhiteSpace(priceString))
+                    fullDescription += $" - {priceString}";
                 if (!string.IsNullOrWhiteSpace(description))
                     fullDescription += $" | {description}";
             }
 
-            // STEP 5: Save to database
-            _logger.LogInformation("💾 Step 4: Saving product to database...");
-            _logger.LogInformation("   📦 SKU: {ArticleNumber}", articleNumber);
-            _logger.LogInformation("   🏷️  Name: {Name}", productName ?? "N/A");
-            _logger.LogInformation("   💰 Price: {Price}", price ?? "N/A");
+            // STEP 5: Save to database (using batch for performance)
+            _logger.LogInformation("💾 Step 4: Adding product to batch...");
+            _logger.LogInformation("   📦 Article Number: {ArticleNumber}", articleNumber);
+            _logger.LogInformation("   🏷️  EAN: {EAN}", ean ?? "N/A");
+            _logger.LogInformation("   📝 Name: {Name}", productName ?? "N/A");
+            _logger.LogInformation("   💰 Price: {Price}", price?.ToString("C") ?? "N/A");
             _logger.LogInformation("   🎨 Color: {Color}", colorId ?? "N/A");
-            _logger.LogInformation("   🖼️  Image: {HasImage}", !string.IsNullOrEmpty(imageUrl) ? "Yes" : "No");
+            _logger.LogInformation("   🖼️  Images: {Count}", imageUrls.Count);
+            _logger.LogInformation("   🔗 URL: {Url}", productUrl);
 
-            await SaveProduct(articleNumber, colorId, fullDescription, imageUrl);
-            _logger.LogInformation("✅ SUCCESS: Product saved to database");
+            // Use batch method for better performance
+            if (imageUrls.Any())
+            {
+                await AddProductToBatchAsync(articleNumber, ean, colorId, price, fullDescription, imageUrls, productUrl);
+            }
+            else
+            {
+                // For products without images, still use immediate save to keep it simple
+                await SaveProduct(articleNumber, colorId, fullDescription, null, productUrl);
+            }
+
+            _logger.LogInformation("✅ SUCCESS: Product added to batch");
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "❌ Error parsing product page data from {Url}", productUrl);
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        }
+    }
+
+    /// <summary>
+    /// Extract useful information from product URL
+    /// Many URLs contain hints about product name, category, color, etc.
+    /// </summary>
+    private Dictionary<string, string?> ExtractInfoFromUrl(string productUrl)
+    {
+        var info = new Dictionary<string, string?>();
+
+        try
+        {
+            var uri = new Uri(productUrl);
+            var path = uri.AbsolutePath;
+
+            // Extract product slug (usually the last meaningful part before .html or id)
+            // Example: /products/cool-t-shirt-blue.html -> "cool-t-shirt-blue"
+            var slugMatch = Regex.Match(path, @"/([a-z0-9-]+)(?:\.html)?(?:\?|$)", RegexOptions.IgnoreCase);
+            if (slugMatch.Success)
+            {
+                var slug = slugMatch.Groups[1].Value;
+                info["slug"] = slug;
+
+                // Try to extract color from slug (common patterns: -blue, -red, -black)
+                var colorMatch = Regex.Match(slug, @"-(red|blue|green|black|white|yellow|pink|purple|orange|grey|gray|brown|navy|beige)$", RegexOptions.IgnoreCase);
+                if (colorMatch.Success)
+                {
+                    info["color_hint"] = colorMatch.Groups[1].Value;
+                }
+
+                // Try to extract size hints
+                var sizeMatch = Regex.Match(slug, @"-(xs|s|m|l|xl|xxl|\d{2,3})$", RegexOptions.IgnoreCase);
+                if (sizeMatch.Success)
+                {
+                    info["size_hint"] = sizeMatch.Groups[1].Value;
+                }
+            }
+
+            // Extract category hints from path
+            // Example: /clothing/shirts/product-123 -> category: "shirts"
+            var pathParts = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (pathParts.Length > 1)
+            {
+                // Skip common URL parts like 'products', 'p', 'item'
+                var categories = pathParts.Where(p => 
+                    !p.Equals("products", StringComparison.OrdinalIgnoreCase) &&
+                    !p.Equals("p", StringComparison.OrdinalIgnoreCase) &&
+                    !p.Equals("item", StringComparison.OrdinalIgnoreCase) &&
+                    !p.Contains(".html", StringComparison.OrdinalIgnoreCase) &&
+                    !Regex.IsMatch(p, @"^\d+$") // Skip numeric IDs
+                ).ToList();
+
+                if (categories.Any())
+                {
+                    info["category_hint"] = string.Join(" > ", categories);
+                }
+            }
+
+            // Extract query parameters that might be useful
+            var query = uri.Query;
+            if (!string.IsNullOrEmpty(query))
+            {
+                var queryParams = System.Web.HttpUtility.ParseQueryString(query);
+
+                // Common parameters
+                if (!string.IsNullOrEmpty(queryParams["color"]))
+                    info["color_param"] = queryParams["color"];
+                if (!string.IsNullOrEmpty(queryParams["size"]))
+                    info["size_param"] = queryParams["size"];
+                if (!string.IsNullOrEmpty(queryParams["variant"]))
+                    info["variant_param"] = queryParams["variant"];
+            }
+
+            _logger.LogDebug("📍 Extracted URL info: {Info}", string.Join(", ", info.Select(kv => $"{kv.Key}={kv.Value}")));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "⚠️ Could not extract info from URL: {Url}", productUrl);
+        }
+
+        return info;
+    }
+
+    /// <summary>
+    /// Flush accumulated products to database in a single batch operation
+    /// </summary>
+    private async Task FlushBatchAsync()
+    {
+        if (!_productBatch.Any())
+            return;
+
+        try
+        {
+            _logger.LogInformation("💾 Flushing batch of {Count} products to database...", _productBatch.Count);
+
+            // Get existing products to determine which need updates vs inserts
+            var articleNumbers = _productBatch.Select(p => p.ArticleNumber).Distinct().ToList();
+            var existingProducts = await _context.Products
+                .Include(p => p.Images)
+                .Where(p => articleNumbers.Contains(p.ArticleNumber))
+                .ToListAsync();
+
+            var existingDict = existingProducts
+                .ToDictionary(p => $"{p.ArticleNumber}_{p.ColorId ?? ""}");
+
+            int updatedCount = 0;
+            int insertedCount = 0;
+
+            foreach (var product in _productBatch)
+            {
+                var key = $"{product.ArticleNumber}_{product.ColorId ?? ""}";
+
+                if (existingDict.TryGetValue(key, out var existing))
+                {
+                    // Update existing product
+                    existing.EAN = product.EAN;
+                    existing.Price = product.Price;
+                    existing.Description = product.Description;
+                    existing.ProductUrl = product.ProductUrl;
+                    existing.UpdatedAt = DateTime.UtcNow;
+
+                    // Update legacy fields
+#pragma warning disable CS0618
+                    existing.ImageUrl = product.ImageUrl;
+                    existing.ImageData = product.ImageData;
+#pragma warning restore CS0618
+
+                    // Replace images
+                    _context.ProductImages.RemoveRange(existing.Images);
+                    foreach (var image in product.Images)
+                    {
+                        image.ProductId = existing.Id;
+                        existing.Images.Add(image);
+                    }
+
+                    updatedCount++;
+                }
+                else
+                {
+                    // Insert new product
+                    _context.Products.Add(product);
+                    insertedCount++;
+                }
+            }
+
+            await _context.SaveChangesAsync();
+            _productsSaved += _productBatch.Count;
+
+            _logger.LogInformation("✅ Batch saved: {Inserted} new, {Updated} updated", insertedCount, updatedCount);
+
+            _productBatch.Clear();
+            _imageBatch.Clear();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error flushing product batch");
+            // Don't clear batch on error - could retry
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Add product to batch (optimized version without immediate save)
+    /// </summary>
+    private async Task AddProductToBatchAsync(
+        string articleNumber, 
+        string? ean, 
+        string? colorId, 
+        decimal? price, 
+        string? description, 
+        List<string> imageUrls, 
+        string? productUrl)
+    {
+        try
+        {
+            var product = new Product
+            {
+                ArticleNumber = articleNumber,
+                EAN = ean,
+                ColorId = colorId,
+                Price = price,
+                Description = description,
+                ProductUrl = productUrl,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            // Download and add images
+            for (int i = 0; i < imageUrls.Count; i++)
+            {
+                var imageUrl = imageUrls[i];
+                var imageData = await DownloadImage(imageUrl);
+
+                var productImage = new ProductImage
+                {
+                    ImageUrl = imageUrl,
+                    ImageData = imageData,
+                    Order = i,
+                    IsPrimary = i == 0,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                product.Images.Add(productImage);
+            }
+
+            // Set legacy fields for backward compatibility
+            if (imageUrls.Any())
+            {
+#pragma warning disable CS0618
+                product.ImageUrl = imageUrls[0];
+                product.ImageData = product.Images.FirstOrDefault()?.ImageData;
+#pragma warning restore CS0618
+            }
+
+            _productBatch.Add(product);
+
+            // Auto-flush when batch size reached
+            if (_productBatch.Count >= BATCH_SIZE)
+            {
+                await FlushBatchAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "❌ Error adding product to batch: {ArticleNumber}", articleNumber);
         }
     }
 }
