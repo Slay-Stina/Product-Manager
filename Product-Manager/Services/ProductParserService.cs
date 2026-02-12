@@ -336,21 +336,26 @@ public class ProductParserService
 
         if (lastComma >= 0 && lastDot >= 0)
         {
-            if (lastComma > lastDot)
-            {
-                // Comma is the decimal separator, dot is thousands separator: "1.234,56"
-                normalizedPrice = cleanPrice.Replace(".", string.Empty).Replace(',', '.');
-            }
-            else
-            {
-                // Dot is the decimal separator, comma is thousands separator: "1,234.56"
-                normalizedPrice = cleanPrice.Replace(",", string.Empty);
-            }
+            // Use ternary operator to simplify branch logic
+            normalizedPrice = lastComma > lastDot
+                ? cleanPrice.Replace(".", string.Empty).Replace(',', '.') // Comma is decimal: "1.234,56"
+                : cleanPrice.Replace(",", string.Empty); // Dot is decimal: "1,234.56"
         }
         else if (lastComma >= 0)
         {
-            // Only comma present, treat it as decimal separator: "199,99"
-            normalizedPrice = cleanPrice.Replace(',', '.');
+            // Only comma present. Decide whether it's a decimal or thousands separator.
+            var digitsAfterComma = cleanPrice.Length - lastComma - 1;
+
+            if (digitsAfterComma == 3 && lastComma > 0)
+            {
+                // Likely thousands separator: "1,234" -> "1234"
+                normalizedPrice = cleanPrice.Replace(",", string.Empty);
+            }
+            else
+            {
+                // Treat as decimal separator: "199,99" -> "199.99"
+                normalizedPrice = cleanPrice.Replace(',', '.');
+            }
         }
         else
         {
@@ -491,7 +496,7 @@ public class ParsedProduct
             parts.Add(ProductName);
 
         if (Price.HasValue)
-            parts.Add(Price.Value.ToString("C"));
+            parts.Add(Price.Value.ToString("C", CultureInfo.InvariantCulture));
 
         if (!string.IsNullOrWhiteSpace(Description))
             parts.Add(Description);
