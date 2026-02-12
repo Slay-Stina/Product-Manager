@@ -146,7 +146,16 @@ public class ProductSaverService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "❌ Error flushing product batch");
+            // Capture and clear the current batch to avoid retrying the same products indefinitely
+            var failedProducts = _productBatch.ToList();
+            _productBatch.Clear();
+
+            _logger.LogError(
+                ex,
+                "❌ Error flushing product batch. Cleared batch of {Count} products. Sample article numbers: {Articles}",
+                failedProducts.Count,
+                string.Join(", ", failedProducts.Take(5).Select(p => p.ArticleNumber))
+            );
             throw;
         }
     }
@@ -162,13 +171,20 @@ public class ProductSaverService
         existing.ProductUrl = updated.ProductUrl;
         existing.UpdatedAt = DateTime.UtcNow;
 
-        // Replace images
+        // Replace images - create new instances to avoid EF tracking issues
         _context.ProductImages.RemoveRange(existing.Images);
         existing.Images.Clear();
+        
         foreach (var image in updated.Images)
         {
-            image.ProductId = existing.Id;
-            existing.Images.Add(image);
+            existing.Images.Add(new ProductImage
+            {
+                ProductId = existing.Id,
+                ImageUrl = image.ImageUrl,
+                ImageData = image.ImageData,
+                Order = image.Order,
+                IsPrimary = image.IsPrimary
+            });
         }
     }
 
