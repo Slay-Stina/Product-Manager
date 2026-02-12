@@ -122,7 +122,7 @@ public class AuthenticationService
         foreach (Cookie cookie in cookieCollection)
         {
             cookie.Expired = true;
-            cookie.Expires = DateTime.Now.AddDays(-1); // Set past date for proper expiration
+            cookie.Expires = DateTime.UtcNow.AddDays(-1); // Set past date for proper expiration
         }
         _logger.LogDebug("🔄 Cookie container reset");
     }

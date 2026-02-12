@@ -250,8 +250,10 @@ else
 
     private static string DetectImageMimeType(byte[] data)
     {
-        if (data == null || data.Length < 12)
-            return "image/jpeg"; // Default fallback - need at least 12 bytes for WebP detection
+        const int MinimumBytesForWebPDetection = 12;
+        
+        if (data == null || data.Length < MinimumBytesForWebPDetection)
+            return "image/jpeg"; // Default fallback
 
         // JPEG: FF D8 FF
         if (data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF)
