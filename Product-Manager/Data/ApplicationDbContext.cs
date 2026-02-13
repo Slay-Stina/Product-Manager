@@ -19,6 +19,11 @@ namespace Product_Manager.Data
                     .IsUnicode(true)
                     .HasMaxLength(100);
 
+                entity.Property(p => p.Name)
+                    .IsRequired()
+                    .IsUnicode(true)
+                    .HasMaxLength(200);
+
                 entity.Property(p => p.EAN)
                     .IsUnicode(true)
                     .HasMaxLength(100);
