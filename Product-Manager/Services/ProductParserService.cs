@@ -2,6 +2,7 @@ using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
 using Product_Manager.Models;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -111,7 +112,7 @@ public class ProductParserService
 
                 // Get the @type to show what kind of data this is
                 var typeName = "Unknown";
-                if (root.TryGetProperty("@type", out var typeProperty))
+                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("@type", out var typeProperty))
                 {
                     typeName = typeProperty.GetString() ?? "Unknown";
                 }
@@ -123,14 +124,21 @@ public class ProductParserService
                 { 
                     WriteIndented = true 
                 });
-                _logger.LogInformation(prettyJson);
+                _logger.LogInformation("📦 JSON-LD payload:{NewLine}{Json}", Environment.NewLine, prettyJson);
 
                 // List all available properties
                 _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
                 _logger.LogInformation("📝 AVAILABLE PROPERTIES:");
-                foreach (var property in root.EnumerateObject())
+                if (root.ValueKind == JsonValueKind.Object)
                 {
-                    _logger.LogInformation("   • {Name} ({Type})", property.Name, property.Value.ValueKind);
+                    foreach (var property in root.EnumerateObject())
+                    {
+                        _logger.LogInformation("   • {Name} ({Type})", property.Name, property.Value.ValueKind);
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("   (Root element is of kind {Kind}; cannot enumerate properties.)", root.ValueKind);
                 }
                 _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
@@ -310,7 +318,7 @@ public class ProductParserService
                     // Apply pattern if specified
                     if (!string.IsNullOrWhiteSpace(brandConfig.ArticleNumberUrlPattern))
                     {
-                        var match = Regex.Match(fieldValue, brandConfig.ArticleNumberUrlPattern);
+                        var match = Regex.Match(fieldValue, brandConfig.ArticleNumberUrlPattern, RegexOptions.None, TimeSpan.FromSeconds(1));
                         if (match.Success && match.Groups.Count > 1)
                         {
                             _logger.LogDebug("✓ Extracted article number from JSON-LD field '{Field}': {Number}", 
@@ -333,7 +341,7 @@ public class ProductParserService
                 var idUrl = idProperty.GetString();
                 if (!string.IsNullOrWhiteSpace(idUrl))
                 {
-                    var match = Regex.Match(idUrl, brandConfig.ArticleNumberUrlPattern);
+                    var match = Regex.Match(idUrl, brandConfig.ArticleNumberUrlPattern, RegexOptions.None, TimeSpan.FromSeconds(1));
                     if (match.Success && match.Groups.Count > 1)
                     {
                         _logger.LogDebug("✓ Extracted article number from @id URL: {Number}", match.Groups[1].Value);
@@ -351,14 +359,41 @@ public class ProductParserService
     /// </summary>
     private decimal? ExtractPriceFromJsonLd(JsonElement offers)
     {
-        // Check if offers is null or not an object
+        // Check if offers is null or not an object/array
         if (offers.ValueKind == JsonValueKind.Null || offers.ValueKind == JsonValueKind.Undefined)
         {
             _logger.LogDebug("⚠️ Offers element is null or undefined");
             return null;
         }
 
-        if (!offers.TryGetProperty("price", out var priceProperty))
+        // Handle array of offers - take the first one
+        if (offers.ValueKind == JsonValueKind.Array)
+        {
+            var firstOffer = offers.EnumerateArray().FirstOrDefault();
+            if (firstOffer.ValueKind != JsonValueKind.Undefined)
+            {
+                return ExtractPriceFromSingleOffer(firstOffer);
+            }
+            _logger.LogDebug("⚠️ Offers array is empty");
+            return null;
+        }
+
+        // Handle single offer object
+        if (offers.ValueKind == JsonValueKind.Object)
+        {
+            return ExtractPriceFromSingleOffer(offers);
+        }
+
+        _logger.LogDebug("⚠️ Offers element is not an object or array (ValueKind: {Kind})", offers.ValueKind);
+        return null;
+    }
+
+    /// <summary>
+    /// Extract price from a single offer object
+    /// </summary>
+    private decimal? ExtractPriceFromSingleOffer(JsonElement offer)
+    {
+        if (!offer.TryGetProperty("price", out var priceProperty))
             return null;
 
         if (priceProperty.ValueKind == JsonValueKind.String)
