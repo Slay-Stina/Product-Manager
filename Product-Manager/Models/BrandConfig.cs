@@ -32,6 +32,14 @@ public class BrandConfig
     public string ProductPageImageSelector { get; set; } = string.Empty;
     public string ProductPageColorSelector { get; set; } = string.Empty;
 
+    // Brand-specific JSON-LD parsing configuration
+    public string ArticleNumberSource { get; set; } = "url";  // Where to extract article number from: "url", "jsonld-field", "html-selector"
+    public string ArticleNumberUrlPattern { get; set; } = @"/([^/]+)$";  // Regex pattern to extract article number from URL (e.g., last segment)
+    public string ArticleNumberJsonLdField { get; set; } = "@id";  // JSON-LD field to extract article number from (when source is "jsonld-field")
+    public List<string> EanJsonLdFields { get; set; } = new() { "productID", "mpn", "gtin13", "gtin", "sku" };  // Priority order of fields to check for EAN in JSON-LD
+    public bool ExtractMaterialFromJsonLd { get; set; } = true;  // Extract material field from JSON-LD
+    public bool ExtractCategoryFromJsonLd { get; set; } = true;  // Extract category field from JSON-LD
+
     // Playwright JavaScript rendering
     public bool UseJavaScriptRendering { get; set; } = false;  // Enable Playwright for JavaScript-rendered pages
     public int JavaScriptWaitTimeoutMs { get; set; } = 15000;  // How long to wait for elements (ms)

@@ -60,6 +60,7 @@ public class ProductSaverService
         var product = new Product
         {
             ArticleNumber = parsed.ArticleNumber!,
+            Name = parsed.ProductName ?? parsed.ArticleNumber!,
             EAN = parsed.EAN,
             ColorId = parsed.ColorId,
             Price = parsed.Price,
@@ -166,6 +167,7 @@ public class ProductSaverService
     /// </summary>
     private void UpdateExistingProduct(Product existing, Product updated)
     {
+        existing.Name = updated.Name;
         existing.EAN = updated.EAN;
         existing.Price = updated.Price;
         existing.Description = updated.Description;
