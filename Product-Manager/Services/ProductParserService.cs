@@ -2,6 +2,7 @@ using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
 using Product_Manager.Models;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -368,10 +369,10 @@ public class ProductParserService
         // Handle array of offers - take the first one
         if (offers.ValueKind == JsonValueKind.Array)
         {
-            var enumerator = offers.EnumerateArray();
-            if (enumerator.MoveNext())
+            var firstOffer = offers.EnumerateArray().FirstOrDefault();
+            if (firstOffer.ValueKind != JsonValueKind.Undefined)
             {
-                return ExtractPriceFromSingleOffer(enumerator.Current);
+                return ExtractPriceFromSingleOffer(firstOffer);
             }
             _logger.LogDebug("⚠️ Offers array is empty");
             return null;
