@@ -684,21 +684,8 @@ public partial class ProductCrawlerService
             _logger.LogInformation("   🖼️  Images: {Count}", parsedProduct.ImageUrls.Count);
             _logger.LogInformation("   🔗 URL: {Url}", parsedProduct.ProductUrl);
 
-            // Save using saver service
-            if (parsedProduct.ImageUrls.Any())
-            {
-                await _saverService.AddProductToBatchAsync(parsedProduct);
-            }
-            else
-            {
-                // For products without images, use immediate save
-                await SaveProduct(
-                    parsedProduct.ArticleNumber,
-                    parsedProduct.ColorId,
-                    parsedProduct.GetFullDescription(),
-                    null,
-                    parsedProduct.ProductUrl);
-            }
+            // Save using batch saver service (works for products with or without images)
+            await _saverService.AddProductToBatchAsync(parsedProduct);
 
             _logger.LogInformation("✅ SUCCESS: Product added to batch");
             _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

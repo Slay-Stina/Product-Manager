@@ -499,16 +499,10 @@ public class ProductParserService
             // Only comma present. Decide whether it's a decimal or thousands separator.
             var digitsAfterComma = cleanPrice.Length - lastComma - 1;
 
-            if (digitsAfterComma == 3 && lastComma > 0)
-            {
-                // Likely thousands separator: "1,234" -> "1234"
-                normalizedPrice = cleanPrice.Replace(",", string.Empty);
-            }
-            else
-            {
-                // Treat as decimal separator: "199,99" -> "199.99"
-                normalizedPrice = cleanPrice.Replace(',', '.');
-            }
+            // Use ternary: if 3 digits after comma and comma not at start, it's likely thousands separator
+            normalizedPrice = (digitsAfterComma == 3 && lastComma > 0)
+                ? cleanPrice.Replace(",", string.Empty) // Thousands separator: "1,234" -> "1234"
+                : cleanPrice.Replace(',', '.'); // Decimal separator: "199,99" -> "199.99"
         }
         else
         {
