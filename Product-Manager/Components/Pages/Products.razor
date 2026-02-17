@@ -41,8 +41,9 @@ else if (!products.Any())
 }
 else
 {
-    <FluentDataGrid Id="productsgrid" Items="@products" GridTemplateColumns="1fr 1fr 0.5fr 1fr 2fr 1fr 1.5fr 150px" TGridItem="Product">
+    <FluentDataGrid Id="productsgrid" Items="@products" GridTemplateColumns="1fr 1.5fr 1fr 0.5fr 1fr 2fr 1fr 1.5fr 150px" TGridItem="Product">
         <PropertyColumn Title="Article Number" Property="@(p => p!.ArticleNumber)" Align="Align.Start"/>
+        <PropertyColumn Title="Name" Property="@(p => p!.Name)" Align="Align.Start"/>
         <PropertyColumn Title="EAN" Property="@(p => p!.EAN)" Align="Align.Start"/>
         <PropertyColumn Title="Color ID" Property="@(p => p!.ColorId)" Align="Align.Start"/>
         <PropertyColumn Title="Price" Property="@(p => p!.Price)" Format="C2" Align="Align.Start"/>

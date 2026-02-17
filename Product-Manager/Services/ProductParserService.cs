@@ -2,6 +2,7 @@ using AngleSharp.Dom;
 using AngleSharp.Html.Dom;
 using Product_Manager.Models;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -31,14 +32,25 @@ public class ProductParserService
         {
             _logger.LogInformation("🎯 Parsing product page: {Url}", productUrl);
 
+            // Skip gift cards - we don't want to extract these
+            if (productUrl.Contains("gift-card", StringComparison.OrdinalIgnoreCase) ||
+                productUrl.Contains("giftcard", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation("⏭️  Skipping gift card product");
+                return Task.FromResult<ParsedProduct?>(null);
+            }
+
             var product = new ParsedProduct { ProductUrl = productUrl };
 
-            // Step 1: Try JSON-LD first (fastest and most reliable)
-            var jsonLdData = ExtractFromJsonLd(document);
-            if (jsonLdData != null)
+            // Step 1: Try JSON-LD first if enabled (fastest and most reliable)
+            if (brandConfig.UseJsonLdExtraction)
             {
-                _logger.LogInformation("✅ Found product data in JSON-LD");
-                product.Merge(jsonLdData);
+                var jsonLdData = ExtractFromJsonLd(document, brandConfig);
+                if (jsonLdData != null)
+                {
+                    _logger.LogInformation("✅ Found product data in JSON-LD");
+                    product.Merge(jsonLdData);
+                }
             }
 
             // Step 2: Fill missing data from HTML selectors
@@ -70,12 +82,20 @@ public class ProductParserService
     /// <summary>
     /// Extract product data from JSON-LD structured data
     /// </summary>
-    private ParsedProduct? ExtractFromJsonLd(IHtmlDocument document)
+    private ParsedProduct? ExtractFromJsonLd(IHtmlDocument document, BrandConfig brandConfig)
     {
         var jsonLdScripts = document.QuerySelectorAll("script[type='application/ld+json']");
-        
+
+        _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        _logger.LogInformation("🔍 Found {Count} JSON-LD script(s) on page", jsonLdScripts.Length);
+        _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+        int scriptIndex = 0;
+        ParsedProduct? productResult = null;
+
         foreach (var script in jsonLdScripts)
         {
+            scriptIndex++;
             try
             {
                 var jsonContent = script.TextContent;
@@ -85,9 +105,48 @@ public class ProductParserService
                 using var jsonDoc = JsonDocument.Parse(jsonContent);
                 var root = jsonDoc.RootElement;
 
-                if (root.TryGetProperty("@type", out var typeProperty) && 
-                    typeProperty.GetString() == "Product")
+                // Log ALL JSON-LD structures found
+                _logger.LogInformation("");
+                _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                _logger.LogInformation("📋 JSON-LD SCRIPT #{Index}", scriptIndex);
+
+                // Get the @type to show what kind of data this is
+                var typeName = "Unknown";
+                if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("@type", out var typeProperty))
                 {
+                    typeName = typeProperty.GetString() ?? "Unknown";
+                }
+                _logger.LogInformation("📌 Type: {Type}", typeName);
+                _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                // Pretty-print the entire JSON structure
+                var prettyJson = JsonSerializer.Serialize(root, new JsonSerializerOptions 
+                { 
+                    WriteIndented = true 
+                });
+                _logger.LogInformation("📦 JSON-LD payload:{NewLine}{Json}", Environment.NewLine, prettyJson);
+
+                // List all available properties
+                _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                _logger.LogInformation("📝 AVAILABLE PROPERTIES:");
+                if (root.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (var property in root.EnumerateObject())
+                    {
+                        _logger.LogInformation("   • {Name} ({Type})", property.Name, property.Value.ValueKind);
+                    }
+                }
+                else
+                {
+                    _logger.LogInformation("   (Root element is of kind {Kind}; cannot enumerate properties.)", root.ValueKind);
+                }
+                _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+                // Only process Product types for extraction
+                if (typeName == "Product" && productResult == null)
+                {
+                    _logger.LogInformation("✅ Processing this as PRODUCT data...");
+
                     var product = new ParsedProduct();
 
                     // Name
@@ -108,12 +167,25 @@ public class ProductParserService
                     // Images
                     product.ImageUrls = ExtractImagesFromJsonLd(root);
 
-                    // EAN/GTIN
-                    product.EAN = ExtractEanFromJsonLd(root);
+                    // EAN/GTIN - use configured field priority
+                    product.EAN = ExtractEanFromJsonLd(root, brandConfig);
 
-                    // Product ID
-                    if (root.TryGetProperty("productID", out var productIdProperty))
-                        product.ArticleNumber = productIdProperty.GetString();
+                    // Article Number - use configured source
+                    product.ArticleNumber = ExtractArticleNumberFromJsonLd(root, brandConfig);
+
+                    // Material (if enabled in config)
+                    if (brandConfig.ExtractMaterialFromJsonLd && 
+                        root.TryGetProperty("material", out var materialProperty))
+                    {
+                        product.Material = materialProperty.GetString();
+                    }
+
+                    // Category (if enabled in config)
+                    if (brandConfig.ExtractCategoryFromJsonLd && 
+                        root.TryGetProperty("category", out var categoryProperty))
+                    {
+                        product.Category = categoryProperty.GetString();
+                    }
 
                     // Price
                     if (root.TryGetProperty("offers", out var offers))
@@ -121,16 +193,25 @@ public class ProductParserService
                         product.Price = ExtractPriceFromJsonLd(offers);
                     }
 
-                    return product;
+                    productResult = product;
+                }
+                else
+                {
+                    _logger.LogInformation("ℹ️  Skipping extraction (not a Product type or already found)");
                 }
             }
             catch (JsonException ex)
             {
-                _logger.LogWarning("⚠️ Failed to parse JSON-LD: {Message}", ex.Message);
+                _logger.LogWarning("⚠️ Failed to parse JSON-LD script #{Index}: {Message}", scriptIndex, ex.Message);
             }
         }
 
-        return null;
+        _logger.LogInformation("");
+        _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        _logger.LogInformation("✅ Finished processing all JSON-LD scripts");
+        _logger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
+        return productResult;
     }
 
     /// <summary>
@@ -180,22 +261,95 @@ public class ProductParserService
     }
 
     /// <summary>
-    /// Extract EAN from JSON-LD (supports multiple field names)
+    /// Extract EAN from JSON-LD using brand-configured field priority
     /// </summary>
-    private string? ExtractEanFromJsonLd(JsonElement root)
+    private string? ExtractEanFromJsonLd(JsonElement root, BrandConfig brandConfig)
     {
-        // Try standard GTIN properties
-        if (root.TryGetProperty("gtin13", out var gtin13Property))
-            return gtin13Property.GetString();
-        
-        if (root.TryGetProperty("gtin", out var gtinProperty))
-            return gtinProperty.GetString();
-        
-        if (root.TryGetProperty("sku", out var skuProperty))
-            return skuProperty.GetString();
-        
-        if (root.TryGetProperty("pid", out var pidProperty))
-            return pidProperty.GetString();
+        _logger.LogInformation("🔍 Extracting EAN from JSON-LD...");
+
+        // Try fields in the order specified by brand config
+        foreach (var fieldName in brandConfig.EanJsonLdFields)
+        {
+            _logger.LogInformation("   Checking field: {Field}", fieldName);
+
+            if (root.TryGetProperty(fieldName, out var property))
+            {
+                _logger.LogInformation("   Found field '{Field}' with type: {Type}", fieldName, property.ValueKind);
+
+                if (property.ValueKind == JsonValueKind.String)
+                {
+                    var value = property.GetString();
+                    if (!string.IsNullOrWhiteSpace(value))
+                    {
+                        _logger.LogInformation("✓ Found EAN in JSON-LD field '{Field}': {Value}", fieldName, value);
+                        return value;
+                    }
+                }
+                else if (property.ValueKind == JsonValueKind.Number)
+                {
+                    var value = property.GetInt64().ToString();
+                    _logger.LogInformation("✓ Found EAN (as number) in JSON-LD field '{Field}': {Value}", fieldName, value);
+                    return value;
+                }
+            }
+            else
+            {
+                _logger.LogInformation("   Field '{Field}' not found", fieldName);
+            }
+        }
+
+        _logger.LogWarning("⚠️ No EAN found in any configured fields");
+        return null;
+    }
+
+    /// <summary>
+    /// Extract article number from JSON-LD using brand-configured source
+    /// </summary>
+    private string? ExtractArticleNumberFromJsonLd(JsonElement root, BrandConfig brandConfig)
+    {
+        if (brandConfig.ArticleNumberSource == "jsonld-field")
+        {
+            // Extract from a specific JSON-LD field
+            if (root.TryGetProperty(brandConfig.ArticleNumberJsonLdField, out var fieldProperty))
+            {
+                var fieldValue = fieldProperty.GetString();
+                if (!string.IsNullOrWhiteSpace(fieldValue))
+                {
+                    // Apply pattern if specified
+                    if (!string.IsNullOrWhiteSpace(brandConfig.ArticleNumberUrlPattern))
+                    {
+                        var match = Regex.Match(fieldValue, brandConfig.ArticleNumberUrlPattern, RegexOptions.None, TimeSpan.FromSeconds(1));
+                        if (match.Success && match.Groups.Count > 1)
+                        {
+                            _logger.LogDebug("✓ Extracted article number from JSON-LD field '{Field}': {Number}", 
+                                brandConfig.ArticleNumberJsonLdField, match.Groups[1].Value);
+                            return match.Groups[1].Value;
+                        }
+                    }
+
+                    _logger.LogDebug("✓ Using article number from JSON-LD field '{Field}': {Number}", 
+                        brandConfig.ArticleNumberJsonLdField, fieldValue);
+                    return fieldValue;
+                }
+            }
+        }
+        else if (brandConfig.ArticleNumberSource == "url")
+        {
+            // Extract from @id URL field (default behavior)
+            if (root.TryGetProperty("@id", out var idProperty))
+            {
+                var idUrl = idProperty.GetString();
+                if (!string.IsNullOrWhiteSpace(idUrl))
+                {
+                    var match = Regex.Match(idUrl, brandConfig.ArticleNumberUrlPattern, RegexOptions.None, TimeSpan.FromSeconds(1));
+                    if (match.Success && match.Groups.Count > 1)
+                    {
+                        _logger.LogDebug("✓ Extracted article number from @id URL: {Number}", match.Groups[1].Value);
+                        return match.Groups[1].Value;
+                    }
+                }
+            }
+        }
 
         return null;
     }
@@ -205,32 +359,41 @@ public class ProductParserService
     /// </summary>
     private decimal? ExtractPriceFromJsonLd(JsonElement offers)
     {
-        // Handle both single offer objects and arrays of offers
-        var offerElement = offers;
-
-        if (offers.ValueKind == JsonValueKind.Array)
+        // Check if offers is null or not an object/array
+        if (offers.ValueKind == JsonValueKind.Null || offers.ValueKind == JsonValueKind.Undefined)
         {
-            // Use the first object element in the array as the offer source
-            JsonElement? firstOfferObject = null;
-            foreach (var element in offers.EnumerateArray())
-            {
-                if (element.ValueKind == JsonValueKind.Object)
-                {
-                    firstOfferObject = element;
-                    break;
-                }
-            }
-
-            if (firstOfferObject is null)
-                return null;
-
-            offerElement = firstOfferObject.Value;
+            _logger.LogDebug("⚠️ Offers element is null or undefined");
+            return null;
         }
 
-        if (offerElement.ValueKind != JsonValueKind.Object)
+        // Handle array of offers - take the first one
+        if (offers.ValueKind == JsonValueKind.Array)
+        {
+            var firstOffer = offers.EnumerateArray().FirstOrDefault();
+            if (firstOffer.ValueKind != JsonValueKind.Undefined)
+            {
+                return ExtractPriceFromSingleOffer(firstOffer);
+            }
+            _logger.LogDebug("⚠️ Offers array is empty");
             return null;
+        }
 
-        if (!offerElement.TryGetProperty("price", out var priceProperty))
+        // Handle single offer object
+        if (offers.ValueKind == JsonValueKind.Object)
+        {
+            return ExtractPriceFromSingleOffer(offers);
+        }
+
+        _logger.LogDebug("⚠️ Offers element is not an object or array (ValueKind: {Kind})", offers.ValueKind);
+        return null;
+    }
+
+    /// <summary>
+    /// Extract price from a single offer object
+    /// </summary>
+    private decimal? ExtractPriceFromSingleOffer(JsonElement offer)
+    {
+        if (!offer.TryGetProperty("price", out var priceProperty))
             return null;
 
         if (priceProperty.ValueKind == JsonValueKind.String)
@@ -482,6 +645,8 @@ public class ParsedProduct
     public string? ProductName { get; set; }
     public decimal? Price { get; set; }
     public string? Description { get; set; }
+    public string? Material { get; set; }
+    public string? Category { get; set; }
     public List<string> ImageUrls { get; set; } = new();
     public string? ProductUrl { get; set; }
 
@@ -498,6 +663,8 @@ public class ParsedProduct
         ProductName ??= other.ProductName;
         Price ??= other.Price;
         Description ??= other.Description;
+        Material ??= other.Material;
+        Category ??= other.Category;
         ProductUrl ??= other.ProductUrl;
 
         if (!ImageUrls.Any() && other.ImageUrls.Any())
@@ -505,21 +672,18 @@ public class ParsedProduct
     }
 
     /// <summary>
-    /// Build full description combining name and price
+    /// Build full description combining description and material
     /// </summary>
     public string GetFullDescription()
     {
-        var parts = new List<string>();
+        var result = Description ?? string.Empty;
 
-        if (!string.IsNullOrWhiteSpace(ProductName))
-            parts.Add(ProductName);
+        // Add material with 2 new lines below if available
+        if (!string.IsNullOrWhiteSpace(Material))
+        {
+            result += $"\n\n{Material}";
+        }
 
-        if (Price.HasValue)
-            parts.Add(Price.Value.ToString("C", CultureInfo.InvariantCulture));
-
-        if (!string.IsNullOrWhiteSpace(Description))
-            parts.Add(Description);
-
-        return string.Join(" | ", parts);
+        return result;
     }
 }
