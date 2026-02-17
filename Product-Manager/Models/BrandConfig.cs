@@ -33,7 +33,7 @@ public class BrandConfig
     public string ProductPageColorSelector { get; set; } = string.Empty;
 
     // Brand-specific JSON-LD parsing configuration
-    public string ArticleNumberSource { get; set; } = "url";  // Where to extract article number from: "url", "jsonld-field", "html-selector"
+    public string ArticleNumberSource { get; set; } = "url";  // Where to extract article number from: "url", "jsonld-field"
     public string ArticleNumberUrlPattern { get; set; } = @"/([^/]+)$";  // Regex pattern to extract article number from URL (e.g., last segment)
     public string ArticleNumberJsonLdField { get; set; } = "@id";  // JSON-LD field to extract article number from (when source is "jsonld-field")
     public List<string> EanJsonLdFields { get; set; } = new() { "productID", "mpn", "gtin13", "gtin", "sku" };  // Priority order of fields to check for EAN in JSON-LD
